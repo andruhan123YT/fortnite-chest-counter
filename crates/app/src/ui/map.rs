@@ -497,7 +497,7 @@ mod tests {
     use crate::record::MatchRecord;
 
     fn chest(time: f32) -> ChestEvent {
-        ChestEvent { time, kind: ChestKind::Normal, in_vehicle: false, x: Some(1.0), y: Some(1.0) }
+        ChestEvent { time, kind: ChestKind::Normal, in_vehicle: false, x: Some(1.0), y: Some(1.0), from_loot: false }
     }
 
     #[test]

@@ -6,7 +6,9 @@ use serde::{Deserialize, Serialize};
 
 use crate::breaks::{detect_breaks, marked_breaks, BreakConfig, Tracks};
 use crate::collect::{ChestKind, Collected};
+use crate::lost::lost_opens;
 use crate::schema::fortnite_schema;
+use fnreplay::Vec3;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ChestEvent {
@@ -20,6 +22,9 @@ pub struct ChestEvent {
     pub x: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub y: Option<f64>,
+    /// Found from the chest's loot because the recording missed the open itself.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub from_loot: bool,
 }
 
 /// A treasure hunt prize the recorder received. The replay does not say which prize.
@@ -132,6 +137,7 @@ pub fn analyze(c: &Collected, cfg: &BreakConfig) -> MatchAnalysis {
             in_vehicle: false,
             x: position.map(|(p, _)| p.x),
             y: position.map(|(p, _)| p.y),
+            from_loot: false,
         };
         if let Some(p) = players.get_mut(name) {
             p.opened.push(event);
@@ -143,6 +149,8 @@ pub fn analyze(c: &Collected, cfg: &BreakConfig) -> MatchAnalysis {
         let marked: HashSet<String> = breaks.iter().map(|b| b.chest.id.clone()).collect();
         breaks.extend(detect_breaks(c, &tracks, cfg).into_iter().filter(|b| !marked.contains(&b.chest.id)));
     }
+    // Loot the optional break heuristic already turned into a break is not a lost open.
+    let guessed: Vec<(f32, Option<Vec3>)> = breaks.iter().map(|b| (b.time, b.location)).collect();
     for b in breaks {
         let event = ChestEvent {
             time: b.time,
@@ -150,9 +158,29 @@ pub fn analyze(c: &Collected, cfg: &BreakConfig) -> MatchAnalysis {
             in_vehicle: b.in_vehicle,
             x: b.location.map(|l| l.x),
             y: b.location.map(|l| l.y),
+            from_loot: false,
         };
         if let Some(p) = players.get_mut(&b.player) {
             p.broken.push(event);
+        }
+    }
+
+    let lost = lost_opens(c, &tracks).into_iter().filter(|l| {
+        !guessed.iter().any(|&(t, at)| {
+            (t - l.time).abs() <= 3.0 && at.is_none_or(|p| (p.x - l.location.x).hypot(p.y - l.location.y) <= 800.0)
+        })
+    });
+    for lost in lost {
+        let event = ChestEvent {
+            time: lost.time,
+            kind: ChestKind::Normal,
+            in_vehicle: lost.in_vehicle,
+            x: Some(lost.location.x),
+            y: Some(lost.location.y),
+            from_loot: true,
+        };
+        if let Some(p) = players.get_mut(&lost.player) {
+            p.opened.push(event);
         }
     }
 
@@ -251,7 +279,8 @@ mod tests {
 
     #[test]
     fn treasures_point_at_the_squad_chest_just_before() {
-        let ev = |time| ChestEvent { time, kind: ChestKind::Normal, in_vehicle: false, x: None, y: None };
+        let ev =
+            |time| ChestEvent { time, kind: ChestKind::Normal, in_vehicle: false, x: None, y: None, from_loot: false };
         let mut me = player("Me", Some(3));
         me.opened.push(ev(100.0));
         let mut mate = player("Mate", Some(3));

@@ -353,7 +353,12 @@ mod tests {
     fn credits_a_break_to_the_nearby_player() {
         let mut c = scene();
         for dx in [0.0, 30.0, 60.0] {
-            c.pickups.push(PickupSpawn { time: 10.0, location: v(1000.0 + dx, 50.0), dropped_by: 0 });
+            c.pickups.push(PickupSpawn {
+                time: 10.0,
+                location: v(1000.0 + dx, 50.0),
+                dropped_by: 0,
+                ..Default::default()
+            });
         }
         c.despawns.push(Despawn { time: 14.4, chest: chest("Tiered_Chest_Athena_C_UAID_1") });
 
@@ -368,7 +373,7 @@ mod tests {
     #[test]
     fn loot_from_an_open_is_not_a_break() {
         let mut c = scene();
-        c.pickups.push(PickupSpawn { time: 10.0, location: v(1000.0, 50.0), dropped_by: 0 });
+        c.pickups.push(PickupSpawn { time: 10.0, location: v(1000.0, 50.0), dropped_by: 0, ..Default::default() });
         c.opens.push(Open { time: 9.8, chest: chest("Tiered_Chest_Athena_C_UAID_1"), pawn: 10 });
         c.despawns.push(Despawn { time: 14.4, chest: chest("Tiered_Chest_Athena_C_UAID_2") });
 
@@ -380,7 +385,7 @@ mod tests {
     #[test]
     fn health_hitting_zero_confirms_a_break_without_a_despawn() {
         let mut c = scene();
-        c.pickups.push(PickupSpawn { time: 10.0, location: v(1000.0, 50.0), dropped_by: 0 });
+        c.pickups.push(PickupSpawn { time: 10.0, location: v(1000.0, 50.0), dropped_by: 0, ..Default::default() });
         c.health_depleted.push(Despawn { time: 10.2, chest: chest("Tiered_Chest_Athena_C_UAID_1") });
         let cfg = BreakConfig::default();
         let tracks = Tracks::build(&c, &cfg);
@@ -395,7 +400,7 @@ mod tests {
         // Opened at 3 s far from the later burst, then broken at 10 s: the burst is not
         // explained by the open, but the chest already had its roll.
         c.opens.push(Open { time: 3.0, chest: chest("Tiered_Chest_Athena_C_UAID_1"), pawn: 10 });
-        c.pickups.push(PickupSpawn { time: 10.0, location: v(1000.0, 50.0), dropped_by: 0 });
+        c.pickups.push(PickupSpawn { time: 10.0, location: v(1000.0, 50.0), dropped_by: 0, ..Default::default() });
         c.health_depleted.push(Despawn { time: 10.1, chest: chest("Tiered_Chest_Athena_C_UAID_1") });
         c.despawns.push(Despawn { time: 14.4, chest: chest("Tiered_Chest_Athena_C_UAID_1") });
         let cfg = BreakConfig::default();
@@ -422,7 +427,7 @@ mod tests {
     #[test]
     fn streaming_batches_are_ignored() {
         let mut c = scene();
-        c.pickups.push(PickupSpawn { time: 10.0, location: v(1000.0, 0.0), dropped_by: 0 });
+        c.pickups.push(PickupSpawn { time: 10.0, location: v(1000.0, 0.0), dropped_by: 0, ..Default::default() });
         for i in 0..3 {
             c.despawns
                 .push(Despawn { time: 14.4 + i as f32 * 0.01, chest: chest(&format!("Tiered_Chest_Athena_C_{i}")) });
@@ -435,7 +440,7 @@ mod tests {
     #[test]
     fn far_players_get_no_credit() {
         let mut c = scene();
-        c.pickups.push(PickupSpawn { time: 1.0, location: v(5000.0, 0.0), dropped_by: 0 });
+        c.pickups.push(PickupSpawn { time: 1.0, location: v(5000.0, 0.0), dropped_by: 0, ..Default::default() });
         c.despawns.push(Despawn { time: 5.6, chest: chest("Tiered_Chest_Athena_C_UAID_1") });
         let cfg = BreakConfig::default();
         let tracks = Tracks::build(&c, &cfg);
@@ -450,7 +455,7 @@ mod tests {
         let car_x = |t: f64| if t < 5.5 { 500.0 } else { 500.0 + (t - 5.5) * 1000.0 };
         c.vehicle_positions.insert(500, (0..200).map(|i| (i as f32 * 0.1, v(car_x(i as f64 * 0.1), 0.0))).collect());
         // At t = 8 s the car is at x = 3000; the pawn track would say 800.
-        c.pickups.push(PickupSpawn { time: 8.0, location: v(3000.0, 300.0), dropped_by: 0 });
+        c.pickups.push(PickupSpawn { time: 8.0, location: v(3000.0, 300.0), dropped_by: 0, ..Default::default() });
         c.despawns.push(Despawn { time: 12.6, chest: chest("Tiered_Chest_Athena_C_UAID_1") });
         let cfg = BreakConfig::default();
         let tracks = Tracks::build(&c, &cfg);

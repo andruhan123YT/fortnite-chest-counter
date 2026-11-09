@@ -134,7 +134,8 @@ pub fn fortnite_schema() -> Schema {
             .prop("ReplicatedMovement", PICKUP_MOVEMENT)
             .prop("PawnWhoDroppedPickup", Decoder::IntPacked)
             .prop("bTossedFromContainer", Decoder::Bit)
-            .prop("Count", Decoder::I32),
+            .prop("Count", Decoder::I32)
+            .prop("ItemDefinition", Decoder::IntPacked),
         GroupSpec::new("Vehicle")
             .paths(VEHICLE_PATH_FRAGMENTS.iter().copied())
             .partial_path()

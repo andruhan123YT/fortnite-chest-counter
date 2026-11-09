@@ -100,7 +100,10 @@ impl<W: Write> Visitor for EventDump<W> {
                 }
                 let p = m.location;
                 let dropper = u.get("PawnWhoDroppedPickup").and_then(|v| v.as_u32()).unwrap_or(0);
-                self.emit(json!({"k": "pickup", "t": t, "guid": g, "x": round1(p.x), "y": round1(p.y), "z": round1(p.z), "dropper": dropper}));
+                let tossed = u.get("bTossedFromContainer").and_then(|v| v.as_bool()).unwrap_or(false);
+                let item = u.get("ItemDefinition").and_then(|v| v.as_u32()).and_then(|i| u.object_path(i));
+                let item = item.map(|p| p.rsplit(['/', '.']).next().unwrap_or(p));
+                self.emit(json!({"k": "pickup", "t": t, "guid": g, "x": round1(p.x), "y": round1(p.y), "z": round1(p.z), "dropper": dropper, "tossed": tossed, "item": item}));
             }
             Some(Group::GameState) => {
                 if let Some(state) = u.get("RecorderPlayerState").and_then(|v| v.as_u32()).filter(|&s| s != 0) {

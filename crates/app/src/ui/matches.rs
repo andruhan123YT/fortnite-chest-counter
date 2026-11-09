@@ -243,7 +243,14 @@ fn timeline(ui: &mut egui::Ui, m: &MatchRecord, player: &PlayerChests) {
         for (e, opened) in player.in_order() {
             ui.monospace(m.clock(e.time));
             if opened {
-                ui.label(RichText::new("opened").color(theme::OPENED));
+                let label =
+                    ui.label(RichText::new(if e.from_loot { "opened*" } else { "opened" }).color(theme::OPENED));
+                if e.from_loot {
+                    label.on_hover_text(
+                        "The replay lost this open: its loot landed at your feet with no chest recorded there, \
+                         so it was found from the loot. It counts like any other.",
+                    );
+                }
             } else {
                 ui.label(RichText::new(if e.in_vehicle { "rammed" } else { "broke" }).color(theme::BROKEN));
             }

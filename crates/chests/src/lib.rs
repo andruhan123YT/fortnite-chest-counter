@@ -4,6 +4,7 @@ pub mod analysis;
 pub mod breaks;
 pub mod collect;
 pub mod dump;
+pub mod lost;
 pub mod odds;
 pub mod schema;
 

@@ -120,7 +120,8 @@ fn analyze(args: &[String]) -> Result<(), String> {
         );
         if let Some(me) = record.me(&nick) {
             for e in &me.opened {
-                let _ = writeln!(out, "    {:>5}  opened  {}", record.clock(e.time), e.kind.label());
+                let how = if e.from_loot { "  (from loot)" } else { "" };
+                let _ = writeln!(out, "    {:>5}  opened  {}{how}", record.clock(e.time), e.kind.label());
             }
             for e in &me.broken {
                 let _ = writeln!(

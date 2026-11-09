@@ -138,8 +138,14 @@ chests in it.
   opened isn't counted again when you break it.
 - **Treasures:** a prize grants the recording player a `GA_TreasureHandler` ability, so the
   replay shows exactly when it arrived and which nearby chest rolled it.
+- **Opens the replay lost:** some recordings go minutes without chest updates (often the
+  first minutes of a match) while the loot still records. A chest's worth of loot (3 to
+  6 items, a weapon among them, thrown out of a container) landing at a player's feet,
+  with no recorded open, break or ammo box there, counts as that player's open. The match
+  timeline marks these "opened*". Items a player drops, on death or by hand, carry who
+  dropped them and are never taken for a chest.
 
-Every count is a recorded event, not a guess. As a sanity check over 46 matches: 97% of
+Apart from those opens found from loot, every count is a recorded event. As a sanity check over 46 matches: 97% of
 the opens were followed by container loot landing next to the player within 2.5 s, and
 94% of the breaks by the chest disappearing within 8 s.
 

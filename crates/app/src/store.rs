@@ -204,7 +204,14 @@ mod tests {
     }
 
     fn player(name: &str, team: u32, opened: usize) -> chests::PlayerChests {
-        let ev = chests::ChestEvent { time: 1.0, kind: chests::ChestKind::Normal, in_vehicle: false, x: None, y: None };
+        let ev = chests::ChestEvent {
+            time: 1.0,
+            kind: chests::ChestKind::Normal,
+            in_vehicle: false,
+            x: None,
+            y: None,
+            from_loot: false,
+        };
         chests::PlayerChests {
             name: name.into(),
             team: Some(team),

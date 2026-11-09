@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::cli::mmss;
 
 /// Bump when the analysis changes in a way that makes stored results stale.
-pub const ANALYZER_VERSION: u32 = 9;
+pub const ANALYZER_VERSION: u32 = 10;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct MatchRecord {
@@ -205,7 +205,8 @@ mod tests {
 
     #[test]
     fn summary_counts_teammates() {
-        let ev = ChestEvent { time: 1.0, kind: ChestKind::Normal, in_vehicle: false, x: None, y: None };
+        let ev =
+            ChestEvent { time: 1.0, kind: ChestKind::Normal, in_vehicle: false, x: None, y: None, from_loot: false };
         let p = |name: &str, team, n| PlayerChests {
             name: name.into(),
             team,

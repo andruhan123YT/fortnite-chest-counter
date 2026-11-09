@@ -136,7 +136,7 @@ mod tests {
     use chests::{ChestEvent, PlayerChests};
 
     fn ev(kind: ChestKind) -> ChestEvent {
-        ChestEvent { time: 1.0, kind, in_vehicle: false, x: None, y: None }
+        ChestEvent { time: 1.0, kind, in_vehicle: false, x: None, y: None, from_loot: false }
     }
 
     fn record(at: &str, mine: usize, mate: usize) -> MatchRecord {

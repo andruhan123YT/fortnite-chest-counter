@@ -96,12 +96,38 @@ pub struct Despawn {
     pub chest: ChestRef,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct PickupSpawn {
     pub time: f32,
     pub location: Vec3,
     /// Pawn guid that dropped it, 0 for loot that came out of the world.
     pub dropped_by: u32,
+    /// Thrown out of a chest, ammo box or the like, as opposed to lying on the floor.
+    pub tossed: bool,
+    pub item: LootKind,
+}
+
+/// What a pickup is, as far as telling a chest's loot apart goes.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum LootKind {
+    #[default]
+    Other,
+    Weapon,
+    Ammo,
+}
+
+impl LootKind {
+    /// From the item definition's path: `.../WID_Shotgun_...` or `.../AthenaAmmoDataShells`.
+    pub fn of(path: &str) -> Self {
+        let name = path.rsplit(['/', '.']).next().unwrap_or(path);
+        if name.starts_with("WID_") {
+            Self::Weapon
+        } else if name.contains("AmmoData") {
+            Self::Ammo
+        } else {
+            Self::Other
+        }
+    }
 }
 
 #[derive(Debug, Default)]
@@ -131,7 +157,8 @@ pub struct Collected {
     /// When the battle bus launched. `None` when the recording started after that.
     pub bus_launch: Option<f32>,
     game_phase: Option<u32>,
-    seen_pickups: HashSet<(u32, u32)>,
+    /// Index in `pickups` per pickup actor, so later updates can fill in what it is.
+    pickup_index: HashMap<(u32, u32), usize>,
     seen_grants: HashSet<(u32, i32)>,
     seen_depleted: HashSet<String>,
     seen_marks: HashSet<String>,
@@ -228,12 +255,29 @@ impl Visitor for Collected {
                 }
             }
             Some(Group::Pickup) => {
-                let Some(m) = u.get("ReplicatedMovement").and_then(|v| v.as_movement()) else { return };
-                if !self.seen_pickups.insert((u.channel, u.actor_guid)) {
+                let key = (u.channel, u.actor_guid);
+                let tossed = u.get("bTossedFromContainer").and_then(|v| v.as_bool());
+                let item =
+                    u.get("ItemDefinition").and_then(|v| v.as_u32()).and_then(|g| u.object_path(g)).map(LootKind::of);
+                if let Some(&i) = self.pickup_index.get(&key) {
+                    // Fields that arrive after the pickup first showed up.
+                    let p = &mut self.pickups[i];
+                    p.tossed |= tossed.unwrap_or(false);
+                    if let Some(item) = item {
+                        p.item = item;
+                    }
                     return;
                 }
+                let Some(m) = u.get("ReplicatedMovement").and_then(|v| v.as_movement()) else { return };
                 let dropped_by = u.get("PawnWhoDroppedPickup").and_then(|v| v.as_u32()).unwrap_or(0);
-                self.pickups.push(PickupSpawn { time: u.time, location: m.location, dropped_by });
+                self.pickup_index.insert(key, self.pickups.len());
+                self.pickups.push(PickupSpawn {
+                    time: u.time,
+                    location: m.location,
+                    dropped_by,
+                    tossed: tossed.unwrap_or(false),
+                    item: item.unwrap_or_default(),
+                });
             }
             Some(Group::Vehicle) => {
                 if let Some(m) = u.get("ReplicatedMovement").and_then(|v| v.as_movement()) {
