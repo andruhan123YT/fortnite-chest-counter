@@ -200,6 +200,29 @@ mod imp {
             SetLayeredWindowAttributes(hwnd, 0, alpha, LWA_ALPHA) != 0
         }
     }
+
+    /// Turns off the animation Windows plays when a top-level window is shown. Returns
+    /// false if the window is not there yet.
+    pub fn disable_window_animation(title: &str) -> bool {
+        use windows_sys::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED};
+        let title = wide(title);
+        let disabled: i32 = 1;
+        // SAFETY: `title` is a valid null-terminated UTF-16 string; the handle is checked;
+        // the attribute value is a BOOL that lives through the call.
+        unsafe {
+            let hwnd = FindWindowW(std::ptr::null(), title.as_ptr());
+            if hwnd.is_null() {
+                return false;
+            }
+            DwmSetWindowAttribute(
+                hwnd,
+                DWMWA_TRANSITIONS_FORCEDISABLED as u32,
+                (&disabled as *const i32).cast(),
+                size_of::<i32>() as u32,
+            );
+            true
+        }
+    }
 }
 
 #[cfg(not(windows))]
@@ -231,6 +254,9 @@ mod imp {
     }
     pub fn set_window_opacity(_title: &str, _alpha: u8) -> bool {
         false
+    }
+    pub fn disable_window_animation(_title: &str) -> bool {
+        true
     }
 }
 

@@ -139,6 +139,8 @@ pub struct Collected {
     pub state_name: HashMap<u32, String>,
     pub state_team: HashMap<u32, u32>,
     pub state_is_bot: HashMap<u32, bool>,
+    /// Epic account ids, as hex.
+    pub state_epic_id: HashMap<u32, String>,
     pub vehicle_positions: HashMap<u32, Vec<(f32, Vec3)>>,
     pub opens: Vec<Open>,
     /// Chests that named a player in `SearchingPawn` without being searched: the server
@@ -205,6 +207,9 @@ impl Visitor for Collected {
             Some(Group::PlayerState) => {
                 if let Some(bot) = u.get("bIsABot").and_then(|v| v.as_bool()) {
                     self.state_is_bot.insert(u.actor_guid, bot);
+                }
+                if let Some(id) = u.get("UniqueID").and_then(|v| v.as_str()) {
+                    self.state_epic_id.insert(u.actor_guid, id.to_string());
                 }
                 if let Some(team) = u.get("TeamIndex").and_then(|v| v.as_u32()) {
                     self.state_team.insert(u.actor_guid, team);

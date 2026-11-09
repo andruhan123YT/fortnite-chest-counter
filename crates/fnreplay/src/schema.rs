@@ -31,6 +31,9 @@ pub enum Decoder {
         rotation_short: bool,
         velocity_level: u32,
     },
+    /// `FUniqueNetIdRepl`: a player's online id, such as an Epic account id, as lowercase
+    /// hex (or the plain string for ids sent unencoded).
+    NetId,
     /// Counts as a change but is not decoded.
     Skip,
     /// A fast array field of a `_ClassNetCache` group. Every changed element is reported
@@ -171,6 +174,29 @@ impl Schema {
     }
 }
 
+/// `FUniqueNetIdRepl::NetSerialize`: a flags byte (bit 0 encoded, bit 1 empty, top five
+/// bits the id type, 31 meaning its name follows), then the encoded bytes with their
+/// length, or a string when not encoded.
+fn read_net_id(r: &mut BitReader<'_>) -> Option<String> {
+    const ENCODED: u8 = 1;
+    const EMPTY: u8 = 2;
+    const TYPE_BY_NAME: u8 = 31;
+    let flags = r.read_u8();
+    if flags & ENCODED != 0 && flags & EMPTY != 0 {
+        return None;
+    }
+    if flags >> 3 == TYPE_BY_NAME {
+        r.read_string();
+    }
+    let id = if flags & ENCODED != 0 {
+        let len = usize::from(r.read_u8());
+        r.read_bytes(len).iter().map(|b| format!("{b:02x}")).collect()
+    } else {
+        r.read_string()
+    };
+    (!id.is_empty() && !r.is_error()).then_some(id)
+}
+
 pub(crate) fn decode(decoder: Decoder, r: &mut BitReader<'_>) -> Value {
     let value = match decoder {
         Decoder::Bit => Value::Bool(r.read_bit()),
@@ -194,6 +220,7 @@ pub(crate) fn decode(decoder: Decoder, r: &mut BitReader<'_>) -> Value {
             return read_rep_movement(r, location_level, rotation_short, velocity_level)
                 .map_or(Value::None, Value::Movement);
         }
+        Decoder::NetId => read_net_id(r).map_or(Value::None, Value::Str),
         Decoder::Skip | Decoder::FastArray => Value::None,
     };
     if r.is_error() {

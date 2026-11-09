@@ -85,7 +85,8 @@ fn next(app: &mut ChestApp, last: bool) {
 fn name_step(app: &mut ChestApp, ui: &mut egui::Ui) {
     ui.label(RichText::new("Who are you in Fortnite?").size(18.0).strong());
     ui.label(theme::caption(
-        "Nothing to type: every replay records who played it, and that is who gets counted.          Only enter a display name if several accounts play on this PC and you want to count just one.",
+        "Nothing to type: every replay records who played it, and that is who gets counted. \
+         Only enter a display name if several accounts play on this PC and you want to count just one.",
     ));
     ui.add_space(8.0);
     ui.add(
@@ -142,6 +143,11 @@ fn background_step(app: &mut ChestApp, ui: &mut egui::Ui) {
     ui.checkbox(&mut app.settings.watch, "Count new matches automatically");
     ui.checkbox(&mut app.settings.start_with_windows, "Start with Windows");
     ui.checkbox(&mut app.settings.notifications, "Notify me after each match");
+    ui.checkbox(&mut app.settings.online, "Swap exact chest counts with squadmates who run the app (online)");
+    ui.label(theme::caption(
+        "Sends your Epic account id and name and your chests per match; squadmates get them only for matches \
+         you played together.",
+    ));
     ui.checkbox(&mut app.settings.archive.enabled, "Keep copies of replays (Fortnite deletes old ones)");
     ui.add_enabled_ui(app.settings.archive.enabled, |ui| {
         ui.add(

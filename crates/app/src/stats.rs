@@ -139,6 +139,49 @@ pub fn running_totals(matches: &[MatchRecord], settings: &Settings) -> Vec<(f64,
     out
 }
 
+/// A running total per squadmate who runs the app, over the counted matches played with
+/// them: `(name, [(unix seconds of the local wall clock, their chests so far)])`. Which
+/// squadmates get one follows the online settings.
+pub fn squadmate_totals(matches: &[MatchRecord], settings: &Settings) -> Vec<(String, Vec<(f64, f64)>)> {
+    if !settings.online {
+        return Vec::new();
+    }
+    let mut points: Vec<_> =
+        counted(matches, settings).filter_map(|m| Some((m.started_at?, m.summary(&settings.nick)))).collect();
+    points.sort_by_key(|(at, _)| *at);
+    // Keyed by Epic account id: names can change, the id does not.
+    struct Line {
+        id: String,
+        name: String,
+        total: f64,
+        points: Vec<(f64, f64)>,
+    }
+    let mut lines: Vec<Line> = Vec::new();
+    for (at, s) in points {
+        let x = at.and_utc().timestamp() as f64;
+        for t in s.teammates.iter().filter(|t| t.with_app) {
+            let Some(id) = &t.epic_id else { continue };
+            let i = match lines.iter().position(|l| &l.id == id) {
+                Some(i) => i,
+                None => {
+                    // Starts from nothing just before the first match together.
+                    lines.push(Line { id: id.clone(), name: String::new(), total: 0.0, points: vec![(x - 1.0, 0.0)] });
+                    lines.len() - 1
+                }
+            };
+            let line = &mut lines[i];
+            line.name = t.name.clone();
+            line.total += t.total() as f64;
+            line.points.push((x, line.total));
+        }
+    }
+    lines
+        .into_iter()
+        .filter(|l| settings.online_lines_all || settings.online_lines.iter().any(|n| chests::same_name(n, &l.name)))
+        .map(|l| (l.name, l.points))
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -166,6 +209,7 @@ mod tests {
                     name: "Me".into(),
                     team: Some(1),
                     is_bot: false,
+                    epic_id: None,
                     opened: vec![ev(ChestKind::Rare); mine],
                     broken: vec![],
                 },
@@ -173,6 +217,7 @@ mod tests {
                     name: "Mate".into(),
                     team: Some(1),
                     is_bot: false,
+                    epic_id: None,
                     opened: vec![ev(ChestKind::Normal); mate],
                     broken: vec![],
                 },
@@ -185,6 +230,7 @@ mod tests {
             bus_launch: None,
             fuller: Vec::new(),
             linked_from: Vec::new(),
+            online: Vec::new(),
         }
     }
 
@@ -237,5 +283,44 @@ mod tests {
         assert_eq!(totals(&matches, &settings).mine(), 1002);
         let settings = Settings { base_count: 0, adjustment: -100, ..settings };
         assert_eq!(totals(&matches, &settings).mine(), 0);
+    }
+
+    #[test]
+    fn squadmates_with_the_app_get_lines_over_shared_matches() {
+        let with_app = |at: &str, mate: usize, theirs: u32| {
+            let mut m = record(at, 1, mate);
+            m.players[1].epic_id = Some("b".repeat(32));
+            m.online = vec![crate::online::Found {
+                match_id: "m".into(),
+                player: "b".repeat(32),
+                name: "Mate".into(),
+                opened: theirs,
+                broken: 0,
+            }];
+            m
+        };
+        let matches = vec![
+            with_app("2026-11-08 10:00", 1, 7),
+            record("2026-11-08 11:00", 1, 3),
+            with_app("2026-11-08 12:00", 0, 5),
+        ];
+        let settings = Settings { nick: "me".into(), ..Default::default() };
+        let lines = squadmate_totals(&matches, &settings);
+        assert_eq!(lines.len(), 1);
+        let (name, points) = &lines[0];
+        assert_eq!(name, "Mate");
+        // From zero, then 7, then 12: the match without them in the app adds nothing.
+        let ys: Vec<f64> = points.iter().map(|p| p.1).collect();
+        assert_eq!(ys, vec![0.0, 7.0, 12.0]);
+        // Squad total counts them in full too.
+        assert_eq!(totals(&matches, &settings).teammates, 15);
+
+        let only_others =
+            Settings { online_lines_all: false, online_lines: vec!["Someone".into()], ..settings.clone() };
+        assert!(squadmate_totals(&matches, &only_others).is_empty());
+        let only_mate = Settings { online_lines_all: false, online_lines: vec!["mate".into()], ..settings.clone() };
+        assert_eq!(squadmate_totals(&matches, &only_mate).len(), 1);
+        let off = Settings { online: false, ..settings };
+        assert!(squadmate_totals(&matches, &off).is_empty());
     }
 }

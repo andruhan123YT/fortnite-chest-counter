@@ -73,10 +73,21 @@ Everything the app stores lives in `%APPDATA%\Fortnite Chest Counter`.
 ### Teammates' chests
 
 A replay only records what was near you, so teammates who loot far away barely show up in
-yours. Squad numbers are therefore marked as a lower bound ("152+"). To fill them in, ask
-a teammate for their replays (`%LOCALAPPDATA%\FortniteGame\Saved\Demos`) and drop them on
-the **Squad replays** page. Each replay is matched to yours by the match id the server
-gives everyone in a match, never by date or time, and nothing gets counted twice.
+yours. Squad numbers are therefore marked as a lower bound ("152+").
+
+**Online mode** (on by default, Settings > Online) fixes that for squadmates who run the
+app too, even ones you don't know. After each match the app sends your own chest count for
+it to the sync server and asks for your squadmates' counts. Anyone in your squad with the
+app gets your numbers and you get theirs, from their own replay, so their chests count in
+full: in the squad total, the prize odds and the match details, where they get the app's
+chest icon next to their name. Stats > Running total draws a line for each of them over
+the matches you played together (Settings > Online picks whose). The first sync sends
+every match you already have. Turn the mode off and nothing is sent.
+
+For teammates without the app, ask for their replays
+(`%LOCALAPPDATA%\FortniteGame\Saved\Demos`) and drop them on the **Squad replays** page.
+Each replay is matched to yours by the match id the server gives everyone in a match,
+never by date or time, and nothing gets counted twice.
 
 ### When did my quest finish?
 
@@ -108,10 +119,15 @@ password, the sign-in code or the session. It only reads the file you give it, o
 
 - The app reads replay files from your PC and writes its data to
   `%APPDATA%\Fortnite Chest Counter`.
-- The only thing it asks the internet is GitHub, for this repository's latest release
-  (every 10 minutes; Settings > Updates turns it off). No accounts, no analytics, nothing
-  sent about you or your matches. (The optional Epic profile script talks to Epic, and
-  only when you run it.)
+- It asks GitHub for this repository's latest release every 10 minutes (Settings >
+  Updates turns it off). Nothing about you goes with that.
+- Online mode (on by default; Settings > Online turns it off) sends `chests.l4ve.dev` your
+  Epic account id and name, and for each of your matches its id, start time and the chests
+  you opened and broke, plus a random id of this installation. To get a squadmate's
+  numbers the app needs the match id and their account id, both from your own replay of
+  that match, so your numbers go only to people who played in your squad. Nothing else:
+  no replays, no other players' names, no analytics.
+- No accounts. (The optional Epic profile script talks to Epic, and only when you run it.)
 
 ## Known limitations
 
@@ -207,7 +223,7 @@ The workspace has three crates:
 |---|---|
 | `crates/fnreplay` | Reads the replay container (AES-256, Oodle), then walks the network stream the way Unreal's demo driver does: frames, packets, bunches, actor channels, net GUIDs, replicated property layouts, `ClassNetCache` fields and fast array deltas. Knows nothing about Fortnite. |
 | `crates/chests` | The Fortnite schema (pawns, player states, chests, pickups, vehicles, abilities) and the analysis: opens, breaks, treasures, squads, drop odds. |
-| `crates/app` | The egui desktop app, tray, overlay, folder watcher, replay archive, command line and the Epic profile script. |
+| `crates/app` | The egui desktop app, tray, overlay, folder watcher, replay archive, command line, online mode and the Epic profile script. |
 
 `fnreplay` decodes only the properties the schema asks for and skips everything else
 bit-exactly, since every property payload is length-prefixed.
@@ -243,6 +259,13 @@ therefore use squad chests.
 replay of a match, unlike the replay's GUID (one per recording) or its timestamp (the
 recorder's clock). For each player, whichever linked replay saw the most of their chests
 supplies their whole record.
+
+**Online mode.** `FortPlayerStateAthena.UniqueID` is a `FUniqueNetIdRepl`: a flags byte,
+a length byte and the 16-byte Epic account id. The app uploads the recorder's own count
+per `GameSessionId` and looks up the account ids of the recorder's squad in the same
+match. A squadmate's own number replaces what the recorder's replay saw of them, unless
+the replay saw more. The server keeps one record per player per match and answers only
+for the exact match and account ids asked about.
 
 ### Command line
 

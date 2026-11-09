@@ -115,6 +115,16 @@ fn pirate_shop(app: &ChestApp, ui: &mut egui::Ui) {
     });
 }
 
+/// Lines of squadmates who run the app, apart from the gold, blue and purple of the
+/// app's own series.
+const SQUADMATE_COLORS: [egui::Color32; 5] = [
+    egui::Color32::from_rgb(0x4f, 0xd1, 0xc5),
+    egui::Color32::from_rgb(0xf2, 0x7e, 0x9c),
+    egui::Color32::from_rgb(0x9b, 0xd8, 0x5a),
+    egui::Color32::from_rgb(0xf0, 0x9a, 0x4a),
+    egui::Color32::from_rgb(0xe0, 0xe0, 0xe0),
+];
+
 fn rewards(app: &mut ChestApp, ui: &mut egui::Ui) {
     let squad = app.totals.with_squad();
     let mut changed = false;
@@ -135,7 +145,11 @@ fn rewards(app: &mut ChestApp, ui: &mut egui::Ui) {
             ui.end_row();
             let counted = app.totals.counted_squad();
             let expected_any = counted as f64 * any_reward_rate();
-            ui.label(RichText::new("Any prize, counted matches").color(theme::TREASURE));
+            ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                ui.label(RichText::new("Any prize, counted matches").color(theme::TREASURE));
+                theme::info_icon(ui, any_prize_help(counted, expected_any, app.totals.treasures as u64));
+            });
             ui.label(format!("1 in {:.0}", 1.0 / any_reward_rate()));
             ui.label(format!("{expected_any:.2}"));
             ui.label(theme::caption(format!("{} chests", theme::thousands(counted))));
@@ -164,6 +178,23 @@ fn rewards(app: &mut ChestApp, ui: &mut egui::Ui) {
     }
 }
 
+/// The hover text of the "Any prize" row, in plain words and with the player's numbers.
+fn any_prize_help(chests: u64, expected: f64, got: u64) -> String {
+    let plural =
+        |n: u64, word: &str| if n == 1 { format!("{n} {word}") } else { format!("{} {word}s", theme::thousands(n)) };
+    format!(
+        "Shows whether you have been lucky with prizes.\n\n\
+         About 1 in {:.0} chests gives some prize (any of the rewards below), and every chest you or your squad \
+         loot counts.\n\n\
+         Your squad looted {} in counted matches, so about {expected:.1} prizes were expected on average. \
+         You got {}.\n\n\
+         The base and chests added by hand are left out: their prizes are not in your replays.",
+        1.0 / any_reward_rate(),
+        plural(chests, "chest"),
+        plural(got, "prize"),
+    )
+}
+
 fn luck(got: u32, expected: f64) -> RichText {
     if expected < 0.05 {
         return RichText::new(if got > 0 { "very lucky" } else { "" }).color(theme::OPENED);
@@ -180,6 +211,7 @@ fn luck(got: u32, expected: f64) -> RichText {
 
 fn chart(app: &ChestApp, ui: &mut egui::Ui) {
     let series = stats::running_totals(&app.store.matches, &app.settings);
+    let squadmates = stats::squadmate_totals(&app.store.matches, &app.settings);
     theme::card().show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.label(RichText::new("Running total").strong());
@@ -200,7 +232,32 @@ fn chart(app: &ChestApp, ui: &mut egui::Ui) {
             })
             .show(ui, |plot| {
                 plot.line(Line::new("Teammates", mates).color(theme::SQUAD).width(2.0));
+                for (i, (name, points)) in squadmates.iter().enumerate() {
+                    let points: PlotPoints = points.iter().map(|&(x, y)| [x, y]).collect();
+                    let color = SQUADMATE_COLORS[i % SQUADMATE_COLORS.len()];
+                    plot.line(Line::new(name.as_str(), points).color(color).width(1.6));
+                }
                 plot.line(Line::new("Mine", mine).color(theme::GOLD).width(2.5));
             });
+        if !squadmates.is_empty() {
+            ui.label(theme::caption(
+                "Teammates is everyone you played with. Named lines are squadmates who run the app too, counted \
+                 in full over the matches you played together. Click a name to hide its line.",
+            ));
+        }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn any_prize_help_shows_the_players_numbers() {
+        let text = any_prize_help(1234, 19.93, 1);
+        assert!(text.contains("looted 1,234 chests in counted matches"), "{text}");
+        assert!(text.contains("about 19.9 prizes were expected"), "{text}");
+        assert!(text.contains("You got 1 prize."), "{text}");
+        assert!(text.contains(&format!("About 1 in {:.0} chests", 1.0 / any_reward_rate())), "{text}");
+    }
 }

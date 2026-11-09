@@ -140,8 +140,8 @@ fn analyze(args: &[String]) -> Result<(), String> {
             );
             let _ = writeln!(out, "    {:>5}  treasure  {from}", record.clock(t.time));
         }
-        for (mate, n) in &s.teammates {
-            let _ = writeln!(out, "    teammate {mate}: {n}");
+        for mate in &s.teammates {
+            let _ = writeln!(out, "    teammate {}: {}", mate.name, mate.total());
         }
     }
     if !json {

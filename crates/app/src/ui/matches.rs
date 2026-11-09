@@ -127,6 +127,7 @@ fn table(app: &mut ChestApp, ui: &mut egui::Ui) {
 fn detail(app: &mut ChestApp, ui: &mut egui::Ui, m: &MatchRecord) {
     let nick = app.settings.nick.clone();
     let s = m.summary(&nick);
+    let logo = app.logo.clone();
     ui.horizontal(|ui| {
         let when = m.started_at.map(|t| t.format("%A, %d %B %Y, %H:%M").to_string()).unwrap_or_default();
         ui.label(RichText::new(when).size(18.0).strong());
@@ -215,27 +216,53 @@ fn detail(app: &mut ChestApp, ui: &mut egui::Ui, m: &MatchRecord) {
                 cols[0].label(format!("{}  {from}", m.clock(t.time)));
             }
         }
-        cols[1].label(RichText::new(format!("Teammates: at least {} chests", s.mates)).strong().color(theme::SQUAD));
+        let all_exact = !s.teammates.is_empty() && s.teammates.iter().all(|t| t.with_app);
+        let heading = if all_exact {
+            format!("Teammates: {} chests", s.mates)
+        } else {
+            format!("Teammates: at least {} chests", s.mates)
+        };
+        cols[1].label(RichText::new(heading).strong().color(theme::SQUAD));
         if s.teammates.is_empty() {
             cols[1].label(theme::caption("Solo, or teammates were never near you."));
         }
-        for p in m
-            .roster()
-            .filter(|p| me.is_some_and(|me| !same_name(&p.name, &me.name) && me.team.is_some() && p.team == me.team))
-        {
-            cols[1].label(format!("{}: opened {}, broke {}", p.name, p.opened.len(), p.broken.len()));
+        for t in &s.teammates {
+            cols[1].horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                ui.label(&t.name);
+                if t.with_app {
+                    app_badge(ui, &logo);
+                }
+                ui.label(format!(": opened {}, broke {}", t.opened, t.broken));
+            });
         }
         cols[1].add_space(6.0);
-        if m.linked_from.is_empty() {
-            cols[1].label(theme::caption(theme::SQUAD_NEARBY_NOTE));
-            cols[1].label(theme::caption("Add a teammate's replay of this match under Squad replays to fill it in."));
-        } else {
+        if s.teammates.iter().any(|t| t.with_app) {
+            cols[1].horizontal_wrapped(|ui| {
+                ui.spacing_mut().item_spacing.x = 4.0;
+                app_badge(ui, &logo);
+                ui.label(theme::caption("runs the app too: their own count, from their own replay."));
+            });
+        }
+        // Teammates' replays only matter for those without the app.
+        if !m.linked_from.is_empty() {
             cols[1].label(
                 RichText::new(format!("Filled in from {}'s replay of this match.", m.linked_from.join(", ")))
                     .color(theme::OPENED),
             );
+        } else if !all_exact {
+            cols[1].label(theme::caption(theme::SQUAD_NEARBY_NOTE));
+            cols[1].label(theme::caption("Add a teammate's replay of this match under Squad replays to fill it in."));
         }
     });
+}
+
+/// The app's chest next to a squadmate who runs the app too.
+fn app_badge(ui: &mut egui::Ui, logo: &egui::TextureHandle) {
+    ui.add(egui::Image::new(logo).fit_to_exact_size(egui::vec2(14.0, 14.0))).on_hover_text(
+        "Runs Fortnite Chest Counter too, so these are their own numbers from their own replay, not only the chests \
+         seen near you.",
+    );
 }
 
 fn timeline(ui: &mut egui::Ui, m: &MatchRecord, player: &PlayerChests) {

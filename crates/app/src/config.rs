@@ -110,6 +110,14 @@ pub struct Settings {
     pub check_updates: bool,
     /// The sidebar shows icons only.
     pub compact_nav: bool,
+    /// Share the player's own chest counts with the sync server and get squadmates' back.
+    pub online: bool,
+    /// Running total draws a line for every squadmate met who runs the app; when off,
+    /// only for the names in `online_lines`.
+    pub online_lines_all: bool,
+    pub online_lines: Vec<String>,
+    /// Random id of this installation, sent with uploads.
+    pub install_id: String,
 }
 
 impl Default for Settings {
@@ -132,6 +140,10 @@ impl Default for Settings {
             dim_map: false,
             check_updates: true,
             compact_nav: false,
+            online: true,
+            online_lines_all: true,
+            online_lines: Vec::new(),
+            install_id: String::new(),
         }
     }
 }

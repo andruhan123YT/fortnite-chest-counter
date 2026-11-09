@@ -7,6 +7,7 @@ mod archive;
 mod cli;
 mod config;
 mod icon;
+mod online;
 mod overlay;
 mod platform;
 mod quest;

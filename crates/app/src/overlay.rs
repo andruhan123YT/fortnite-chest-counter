@@ -13,6 +13,10 @@ use crate::config::OverlayCorner;
 use crate::{platform, theme};
 
 pub const OVERLAY_TITLE: &str = "Fortnite Chest Counter Overlay";
+/// The tiny window that carries the lock icon while the overlay ignores the mouse.
+const LOCK_TITLE: &str = "Fortnite Chest Counter Overlay Lock";
+/// Side of the lock icon in the overlay's top right corner.
+const LOCK_SIDE: f32 = 22.0;
 /// Size before the first frame has measured the content, at 100%.
 const BASE_SIZE: egui::Vec2 = egui::vec2(280.0, 110.0);
 pub const MIN_SCALE: f32 = 0.5;
@@ -38,11 +42,50 @@ pub struct OverlayState {
     content: Option<egui::Vec2>,
     /// Pointer, scale and size when the resize handle was grabbed.
     resize_from: Option<(egui::Pos2, Axis, f32, egui::Vec2)>,
+    /// Moving was unlocked from the overlay's own lock icon, so it stays unlocked until
+    /// the icon locks it again, whatever page the app is on.
+    from_icon: bool,
+    /// How far the lock window is in showing itself; `None` until it is created.
+    lock_window: Option<LockWindow>,
 }
+
+/// The lock window opens without a flash: created hidden, then shown fully transparent
+/// until it has painted, then given the overlay's opacity.
+#[derive(Clone, Copy)]
+enum LockWindow {
+    /// Shown fully transparent since then.
+    Painting(Instant),
+    /// Visible at this opacity.
+    Up(u8),
+}
+
+/// How long the new lock window stays transparent: it is white until its first frame
+/// reaches the screen, which takes longer than a couple of frames. The overlay draws the
+/// same icon underneath meanwhile.
+const LOCK_REVEAL_AFTER: Duration = Duration::from_millis(300);
+/// Where the lock window waits while the overlay is unlocked: beyond any screen. It is
+/// kept rather than closed, as a new window flashes white when it opens.
+const LOCK_PARKED: egui::Pos2 = egui::pos2(-20000.0, -20000.0);
 
 pub fn start_editing(app: &mut ChestApp) {
     app.overlay.editing = true;
+    app.overlay.from_icon = false;
     app.overlay.dragged_to = None;
+}
+
+/// The lock icon: unlocks moving and resizing, or locks the overlay in place.
+fn toggle_from_icon(app: &mut ChestApp) {
+    if app.overlay.editing {
+        lock(app);
+    } else {
+        start_editing(app);
+        app.overlay.from_icon = true;
+    }
+}
+
+/// Where the lock icon sits inside an overlay of `size`.
+fn lock_offset(size: egui::Vec2) -> egui::Vec2 {
+    egui::vec2(size.x - LOCK_SIDE - 4.0, 4.0)
 }
 
 /// Ends moving and resizing: saves the place and size and makes the overlay ignore the
@@ -52,6 +95,7 @@ pub fn lock(app: &mut ChestApp) {
         return;
     }
     app.overlay.editing = false;
+    app.overlay.from_icon = false;
     if let Some(at) = app.overlay.dragged_to.take() {
         app.settings.overlay.position = Some([at.x, at.y]);
     }
@@ -136,8 +180,12 @@ struct Interaction {
 /// Shows or hides the overlay. Called every frame.
 pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
     // Never leave the overlay taking the mouse once the player is done with its settings.
+    // Unlocked from its own icon, it stays so until the icon locks it.
     let minimized = ctx.input(|i| i.viewport().minimized).unwrap_or(false);
-    if app.overlay.editing && (app.page != Page::Settings || !app.settings.overlay.enabled || minimized) {
+    // A frame that does not draw the lock window closes it, so it is set up afresh.
+    let lock_window = app.overlay.lock_window.take();
+    let left_settings = app.page != Page::Settings || minimized;
+    if app.overlay.editing && (!app.settings.overlay.enabled || (left_settings && !app.overlay.from_icon)) {
         lock(app);
     }
     let editing = app.overlay.editing;
@@ -321,9 +369,16 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
                 }
                 done.resize_released |= resize.drag_stopped();
             }
-            let lock_at = egui::Rect::from_min_size(whole.right_top() + egui::vec2(-58.0, 4.0), egui::vec2(54.0, 20.0));
-            let lock = egui::Button::new(RichText::new("Lock").size(12.0)).wrap_mode(egui::TextWrapMode::Extend);
-            done.lock = ui.put(lock_at, lock).on_hover_text("Keep it here").clicked();
+        }
+        // The lock icon. Only clickable here while unlocked; locked, the overlay lets the
+        // mouse through and the small lock window below takes the click instead.
+        let lock_at = egui::Rect::from_min_size(whole.min + lock_offset(whole.size()), egui::Vec2::splat(LOCK_SIDE));
+        let (glyph, color) =
+            if editing { (theme::icon::UNLOCK, theme::GOLD) } else { (theme::icon::LOCK, theme::MUTED) };
+        let icon =
+            egui::Button::new(theme::icon_text(glyph, if editing { "U" } else { "L" }, 14.0).color(color)).frame(false);
+        if ui.put(lock_at, icon).on_hover_text("Lock it in place").clicked() {
+            done.lock = true;
         }
         done
     });
@@ -348,13 +403,67 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
         app.overlay.resize_from = None;
     }
     if done.lock {
-        lock(app);
+        toggle_from_icon(app);
     }
 
     let alpha = if editing { 255 } else { (settings.opacity.clamp(0.3, 1.0) * 255.0).round() as u8 };
     if app.overlay.applied_alpha != Some(alpha) && platform::set_window_opacity(OVERLAY_TITLE, alpha) {
         app.overlay.applied_alpha = Some(alpha);
     }
+
+    // Locked, the overlay lets the mouse through, so a tiny window of its own sits on the
+    // lock icon to catch a click. Everything else still goes to the game.
+    // Unlocked, it is parked off screen, and also in the frame that locks the overlay:
+    // `pos` and `size` still hold the old place there.
+    let parked = app.overlay.editing || editing;
+    if parked && !app.overlay.editing {
+        ctx.request_repaint();
+    }
+    let lock_builder = ViewportBuilder::default()
+        .with_title(LOCK_TITLE)
+        .with_decorations(false)
+        .with_always_on_top()
+        .with_taskbar(false)
+        .with_resizable(false)
+        .with_active(false)
+        .with_visible(lock_window.is_some())
+        .with_inner_size(egui::Vec2::splat(LOCK_SIDE))
+        .with_position(if parked { LOCK_PARKED } else { pos + lock_offset(size) });
+    let unlock = ctx.show_viewport_immediate(ViewportId::from_hash_of("overlay_lock"), lock_builder, |ui, _class| {
+        let mut clicked = false;
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::BG)).show(ui, |ui| {
+            let icon =
+                egui::Button::new(theme::icon_text(theme::icon::LOCK, "L", 14.0).color(theme::MUTED)).frame(false);
+            clicked = ui.put(ui.max_rect(), icon).on_hover_text("Unlock to move and resize the overlay").clicked();
+        });
+        clicked
+    });
+    if unlock {
+        toggle_from_icon(app);
+    }
+    app.overlay.lock_window = match lock_window {
+        // Windows plays an animation when a window is shown, which flies the icon in from
+        // aside, so it is turned off while the window is still hidden.
+        None => {
+            ctx.request_repaint();
+            (platform::disable_window_animation(LOCK_TITLE) && platform::set_window_opacity(LOCK_TITLE, 0))
+                .then_some(LockWindow::Painting(Instant::now()))
+        }
+        Some(LockWindow::Painting(since)) => {
+            ctx.request_repaint_after(Duration::from_millis(50));
+            if since.elapsed() >= LOCK_REVEAL_AFTER && platform::set_window_opacity(LOCK_TITLE, alpha) {
+                Some(LockWindow::Up(alpha))
+            } else {
+                Some(LockWindow::Painting(since))
+            }
+        }
+        // Parked, it keeps its opacity: changing it in the frame it comes back would show.
+        Some(LockWindow::Up(applied)) if parked => Some(LockWindow::Up(applied)),
+        Some(LockWindow::Up(applied)) => {
+            let changed = applied != alpha && platform::set_window_opacity(LOCK_TITLE, alpha);
+            Some(LockWindow::Up(if changed { alpha } else { applied }))
+        }
+    };
 }
 
 #[cfg(test)]

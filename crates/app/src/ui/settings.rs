@@ -20,6 +20,8 @@ pub struct SettingsUi {
     pub archive_dir: String,
     pub error: Option<String>,
     pub archive_usage: Option<u64>,
+    /// Names for Running total lines, one per line.
+    pub online_lines: String,
 }
 
 impl SettingsUi {
@@ -33,6 +35,10 @@ impl SettingsUi {
             archive_dir: s.archive.dir.display().to_string(),
             error: None,
             archive_usage: None,
+            online_lines: s.online_lines.join(
+                "
+",
+            ),
         }
     }
 
@@ -257,7 +263,8 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
             }
             ui.label(theme::caption(
                 "Set Fortnite to Windowed Fullscreen (Settings > Video > Window Mode): Windows cannot draw over exclusive fullscreen. \
-                 The overlay ignores the mouse, so clicks go to the game; it only takes the mouse while you move it.",
+                 The overlay ignores the mouse, so clicks go to the game; it only takes the mouse while you move it. \
+                 The lock in its top right corner unlocks it for moving too, and locks it again.",
             ));
         });
 
@@ -266,6 +273,8 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
             ui.checkbox(&mut app.settings.close_to_tray, "Closing the window keeps the app running in the tray");
             ui.checkbox(&mut app.settings.notifications, "Show a notification after each match");
         });
+
+        section(ui, "Online", |ui| online(app, ui));
 
         section(ui, "Updates", |ui| updates(app, ui));
 
@@ -347,6 +356,57 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
             }
         });
     });
+}
+
+fn online(app: &mut ChestApp, ui: &mut egui::Ui) {
+    if ui.checkbox(&mut app.settings.online, "Share my chest counts and get squadmates' exact counts").changed() {
+        let _ = app.settings.save();
+    }
+    let status = &app.online.status;
+    if !app.settings.online {
+        ui.label(theme::caption("Off: nothing is sent, and squadmates count as far as your replays saw them."));
+    } else if let Some(error) = &status.error {
+        ui.label(
+            RichText::new(format!("Could not reach the server: {error}. Trying again every minute."))
+                .color(theme::WARN),
+        );
+    } else if let Some(at) = status.last_ok {
+        let found = app.online.squadmates();
+        ui.label(theme::caption(format!(
+            "In sync at {}. {} squadmate{} with the app found so far.",
+            at.format("%H:%M"),
+            found,
+            if found == 1 { "" } else { "s" }
+        )));
+    }
+    ui.add_space(4.0);
+    if ui
+        .checkbox(&mut app.settings.online_lines_all, "Running total: a line for every squadmate who runs the app")
+        .changed()
+    {
+        let _ = app.settings.save();
+    }
+    if !app.settings.online_lines_all {
+        ui.label(theme::caption("Lines only for these names, one per line:"));
+        let edit = egui::TextEdit::multiline(&mut app.settings_ui.online_lines).desired_rows(3).desired_width(260.0);
+        if ui.add(edit).changed() {
+            app.settings.online_lines = app
+                .settings_ui
+                .online_lines
+                .lines()
+                .map(str::trim)
+                .filter(|l| !l.is_empty())
+                .map(str::to_owned)
+                .collect();
+            let _ = app.settings.save();
+        }
+    }
+    ui.label(theme::caption(format!(
+        "Squadmates who run the app too get each other's own counts, so their chests count in full, not only the \
+         ones near you. Sent to {}: your Epic account id and name, and for each match its id, start time and your \
+         opened and broken chests. Someone gets your numbers only for a match they played in your squad.",
+        crate::online::SERVER.trim_start_matches("https://")
+    )));
 }
 
 fn updates(app: &mut ChestApp, ui: &mut egui::Ui) {

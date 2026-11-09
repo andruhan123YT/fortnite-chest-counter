@@ -54,6 +54,9 @@ pub struct PlayerChests {
     pub team: Option<u32>,
     #[serde(default)]
     pub is_bot: bool,
+    /// Epic account id as 32 hex digits; bots have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub epic_id: Option<String>,
     #[serde(default)]
     pub opened: Vec<ChestEvent>,
     #[serde(default)]
@@ -122,6 +125,9 @@ pub fn analyze(c: &Collected, cfg: &BreakConfig) -> MatchAnalysis {
             players.entry(name.clone()).or_insert_with(|| PlayerChests { name: name.clone(), ..Default::default() });
         entry.team = entry.team.or_else(|| c.state_team.get(state).copied());
         entry.is_bot |= c.state_is_bot.get(state).copied().unwrap_or(false);
+        if entry.epic_id.is_none() && !entry.is_bot {
+            entry.epic_id = c.state_epic_id.get(state).cloned();
+        }
     }
 
     let mut seen_chests = HashSet::new();

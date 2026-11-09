@@ -113,7 +113,7 @@ pub fn fortnite_schema() -> Schema {
         GroupSpec::new("PlayerState")
             .paths(["/Script/FortniteGame.FortPlayerStateAthena"])
             .prop("PlayerID", Decoder::U32)
-            .prop("UniqueId", Decoder::Skip)
+            .prop("UniqueID", Decoder::NetId)
             .prop("PlayerNamePrivate", Decoder::String)
             .prop("bOnlySpectator", Decoder::Bit)
             .prop("DeathCause", Decoder::UInt)

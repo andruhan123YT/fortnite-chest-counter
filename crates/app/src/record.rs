@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::cli::mmss;
 
 /// Bump when the analysis changes in a way that makes stored results stale.
-pub const ANALYZER_VERSION: u32 = 10;
+pub const ANALYZER_VERSION: u32 = 11;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct MatchRecord {
@@ -53,6 +53,10 @@ pub struct MatchRecord {
     /// Who recorded the teammates' replays linked to this match. Never saved.
     #[serde(skip)]
     pub linked_from: Vec<String>,
+    /// Squadmates who run the app too, with their own replay's count of their chests.
+    /// Filled in by the store from the sync server; never saved here.
+    #[serde(skip)]
+    pub online: Vec<crate::online::Found>,
 }
 
 fn full_health() -> f32 {
@@ -64,10 +68,27 @@ pub struct MatchSummary {
     pub found: bool,
     pub opened: usize,
     pub broken: usize,
-    /// Chests of teammates seen in the replay, without the counted player's own.
+    /// Chests of teammates, without the counted player's own: exact for those who run the
+    /// app too, what the replay saw near the player for the rest.
     pub mates: usize,
-    pub teammates: Vec<(String, usize)>,
+    pub teammates: Vec<Teammate>,
     pub treasures: usize,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Teammate {
+    pub name: String,
+    pub epic_id: Option<String>,
+    pub opened: usize,
+    pub broken: usize,
+    /// They run the app too, so the counts are theirs, from their own replay.
+    pub with_app: bool,
+}
+
+impl Teammate {
+    pub fn total(&self) -> usize {
+        self.opened + self.broken
+    }
 }
 
 impl MatchSummary {
@@ -124,6 +145,7 @@ impl MatchRecord {
             bus_launch: analysis.bus_launch,
             fuller: Vec::new(),
             linked_from: Vec::new(),
+            online: Vec::new(),
         }
     }
 
@@ -148,17 +170,45 @@ impl MatchRecord {
         let Some(me) = self.me(nick) else {
             return MatchSummary::default();
         };
-        let teammates: Vec<(String, usize)> = match me.team {
+        let teammates: Vec<Teammate> = match me.team {
             Some(team) => self
                 .roster()
                 .filter(|p| p.team == Some(team) && !same_name(&p.name, nick))
-                .map(|p| (p.name.clone(), p.total()))
+                .map(|p| self.teammate(p))
                 .collect(),
             None => Vec::new(),
         };
-        let mates = teammates.iter().map(|(_, n)| n).sum::<usize>();
+        let mates = teammates.iter().map(Teammate::total).sum::<usize>();
         let treasures = self.treasures(nick).len();
         MatchSummary { found: true, opened: me.opened.len(), broken: me.broken.len(), mates, teammates, treasures }
+    }
+
+    /// A squadmate's chests: their own count when they run the app too, unless this
+    /// replay somehow saw more.
+    fn teammate(&self, p: &PlayerChests) -> Teammate {
+        let online = p.epic_id.as_deref().and_then(|id| self.online.iter().find(|f| f.player == id));
+        match online {
+            Some(f) if f.total() >= p.total() => Teammate {
+                name: p.name.clone(),
+                epic_id: p.epic_id.clone(),
+                opened: f.opened as usize,
+                broken: f.broken as usize,
+                with_app: true,
+            },
+            _ => Teammate {
+                name: p.name.clone(),
+                epic_id: p.epic_id.clone(),
+                opened: p.opened.len(),
+                broken: p.broken.len(),
+                with_app: online.is_some(),
+            },
+        }
+    }
+
+    /// The recorder's own entry, the one the app shares with the sync server.
+    pub fn recorder(&self) -> Option<&PlayerChests> {
+        let owner = self.owner.as_deref()?;
+        self.players.iter().find(|p| same_name(&p.name, owner))
     }
 
     /// Prizes of the counted player. Only the recorder's are in a replay.
@@ -211,6 +261,7 @@ mod tests {
             name: name.into(),
             team,
             is_bot: false,
+            epic_id: None,
             opened: vec![ev.clone(); n],
             broken: vec![],
         };
@@ -233,6 +284,7 @@ mod tests {
             bus_launch: None,
             fuller: Vec::new(),
             linked_from: Vec::new(),
+            online: Vec::new(),
         };
         let s = record.summary("ME");
         assert_eq!((s.mine(), s.mates, s.teammates.len()), (3, 2, 1));
@@ -243,6 +295,43 @@ mod tests {
         assert_eq!(record.summary("").treasures, 1);
         // Prizes belong to the recorder only.
         assert_eq!(record.summary("Mate").treasures, 0);
+    }
+
+    #[test]
+    fn a_squadmate_with_the_app_counts_in_full() {
+        let ev =
+            ChestEvent { time: 1.0, kind: ChestKind::Normal, in_vehicle: false, x: None, y: None, from_loot: false };
+        let p = |name: &str, id: &str, n| PlayerChests {
+            name: name.into(),
+            team: Some(5),
+            epic_id: Some(id.into()),
+            opened: vec![ev.clone(); n],
+            ..Default::default()
+        };
+        let found = |player: &str, opened, broken| crate::online::Found {
+            match_id: "m".into(),
+            player: player.into(),
+            name: "x".into(),
+            opened,
+            broken,
+        };
+        let mut record = MatchRecord {
+            owner: Some("Me".into()),
+            players: vec![p("Me", "a", 3), p("Mate", "b", 2), p("Random", "c", 4)],
+            ..Default::default()
+        };
+        assert_eq!(record.summary("").mates, 6);
+        // Mate's app says 9 opened and 3 broken; this replay only saw 2 of them.
+        record.online = vec![found("b", 9, 3)];
+        let s = record.summary("");
+        assert_eq!(s.mates, 16);
+        let mate = s.teammates.iter().find(|t| t.name == "Mate").unwrap();
+        assert_eq!((mate.opened, mate.broken, mate.with_app), (9, 3, true));
+        assert!(!s.teammates.iter().find(|t| t.name == "Random").unwrap().with_app);
+        // A lower number than this replay saw is not taken, but they still run the app.
+        record.online = vec![found("c", 1, 0)];
+        let random = record.summary("").teammates.into_iter().find(|t| t.name == "Random").unwrap();
+        assert_eq!((random.total(), random.with_app), (4, true));
     }
 
     #[test]
@@ -266,6 +355,7 @@ mod tests {
             bus_launch: None,
             fuller: Vec::new(),
             linked_from: Vec::new(),
+            online: Vec::new(),
         };
         assert_eq!(record.clock(125.0), "2:05");
         record.bus_launch = Some(55.0);

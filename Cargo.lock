@@ -338,7 +338,7 @@ dependencies = [
 
 [[package]]
 name = "chests"
-version = "1.0.3"
+version = "1.1.0"
 dependencies = [
  "fnreplay",
  "serde",
@@ -920,7 +920,7 @@ dependencies = [
 
 [[package]]
 name = "fnreplay"
-version = "1.0.3"
+version = "1.1.0"
 dependencies = [
  "aes",
  "oozextract",
@@ -977,7 +977,7 @@ checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "fortnite-chest-counter"
-version = "1.0.3"
+version = "1.1.0"
 dependencies = [
  "chests",
  "chrono",

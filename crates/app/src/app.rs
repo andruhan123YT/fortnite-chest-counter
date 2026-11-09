@@ -88,6 +88,9 @@ pub struct ChestApp {
     pub overlay: crate::overlay::OverlayState,
     pub updater: crate::update::Updater,
     pub update: crate::update::Status,
+    pub online: crate::online::Sync,
+    /// Whether the store currently holds squadmates' counts from the sync server.
+    online_shown: bool,
     pub logo: egui::TextureHandle,
     /// Frames left in which to keep the window hidden after a `--minimized` start.
     /// eframe shows the window after its first frame regardless of the builder.
@@ -127,7 +130,11 @@ pub fn run(start_minimized: bool) -> ExitCode {
 
 impl ChestApp {
     fn new(ctx: &egui::Context, start_minimized: bool) -> Self {
-        let settings = Settings::load();
+        let mut settings = Settings::load();
+        if settings.install_id.is_empty() {
+            settings.install_id = crate::online::new_install_id();
+            let _ = settings.save();
+        }
         if settings.setup_done && settings.start_with_windows {
             // Point autostart at this executable in case it was moved since setup.
             let _ = platform::set_autostart(true);
@@ -146,6 +153,9 @@ impl ChestApp {
 
         let update_ctx = ctx.clone();
         let updater = crate::update::Updater::start(settings.check_updates, move || update_ctx.request_repaint());
+        let online_ctx = ctx.clone();
+        let online =
+            crate::online::Sync::start(crate::online::Sync::default_path(), move || online_ctx.request_repaint());
 
         let tray = crate::tray::create(ctx, settings.watch, settings.overlay.enabled);
         if start_minimized && tray.is_none() {
@@ -173,6 +183,8 @@ impl ChestApp {
             overlay: Default::default(),
             updater,
             update: Default::default(),
+            online,
+            online_shown: false,
             logo: ctx.load_texture(
                 "logo",
                 egui::ColorImage::from_rgba_unmultiplied([128, 128], &icon::chest_rgba(128)),
@@ -272,6 +284,7 @@ impl ChestApp {
                     }
                     let notify = from_watch && self.settings.notifications && self.settings.counts(record.started_at);
                     self.store.upsert(*record);
+                    self.online.nudge();
                     self.activity.progress = None;
                     changed = true;
                     if notify {
@@ -414,6 +427,21 @@ impl ChestApp {
         let Some(me) = self.usual_player() else { return false };
         !chests::same_name(owner, &me)
             && self.store.matches.iter().any(|m| m.match_id.as_deref() == Some(id) && m.id != record.id)
+    }
+
+    /// Runs the online mode, and puts squadmates' counts into the matches or takes them out
+    /// when it is switched off.
+    fn process_online(&mut self, ctx: &egui::Context) {
+        let enabled = self.settings.online && self.settings.setup_done;
+        let changed = self.online.tick(enabled, &self.store.matches, &self.settings.install_id);
+        if changed || enabled != self.online_shown {
+            self.online_shown = enabled;
+            self.store.set_online(if enabled { self.online.found() } else { Vec::new() });
+            self.refresh_totals();
+        }
+        if enabled {
+            ctx.request_repaint_after(crate::online::TICK);
+        }
     }
 
     fn process_updates(&mut self, ctx: &egui::Context) {
@@ -580,6 +608,7 @@ impl eframe::App for ChestApp {
         self.process_events(ctx);
         self.process_tray(ctx);
         self.process_updates(ctx);
+        self.process_online(ctx);
         self.handle_close(ctx);
         self.handle_dropped_files(ctx);
         crate::overlay::update(self, ctx);

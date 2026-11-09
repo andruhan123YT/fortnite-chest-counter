@@ -38,10 +38,9 @@ def version():
 
 def third_party_licenses():
     meta = json.loads(run(["cargo", "metadata", "--format-version", "1", "--filter-platform", TARGET]))
-    used = {node["id"] for node in meta["resolve"]["nodes"]}
-    dev_only = dev_only_packages(meta)
+    shipped = shipped_packages(meta, "fortnite-chest-counter")
     packages = sorted(
-        (p for p in meta["packages"] if p["id"] in used and p["source"] and p["name"] not in dev_only),
+        (p for p in meta["packages"] if p["id"] in shipped and p["source"]),
         key=lambda p: (p["name"], p["version"]),
     )
     parts = [
@@ -67,22 +66,24 @@ def third_party_licenses():
     return "".join(parts)
 
 
-def dev_only_packages(meta):
-    """Names of crates reachable only through dev- or build-dependencies of workspace crates."""
+def shipped_packages(meta, root_name):
+    """Ids of the crates compiled into `root_name`: its normal dependencies, transitively.
+    Dev- and build-dependencies, and other workspace members such as the sync server, are
+    left out."""
     nodes = {n["id"]: n for n in meta["resolve"]["nodes"]}
     names = {p["id"]: p["name"] for p in meta["packages"]}
-    normal = set()
-    stack = list(meta["workspace_members"])
+    root = next(pid for pid in meta["workspace_members"] if names[pid] == root_name)
+    shipped = set()
+    stack = [root]
     while stack:
         pid = stack.pop()
-        if pid in normal:
+        if pid in shipped:
             continue
-        normal.add(pid)
+        shipped.add(pid)
         for dep in nodes[pid]["deps"]:
-            kinds = {k["kind"] for k in dep["dep_kinds"]}
-            if None in kinds:
+            if None in {k["kind"] for k in dep["dep_kinds"]}:
                 stack.append(dep["pkg"])
-    return {names[pid] for pid in nodes if pid not in normal} - {names[pid] for pid in normal}
+    return shipped
 
 
 def main():

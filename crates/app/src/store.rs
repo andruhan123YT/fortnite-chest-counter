@@ -26,6 +26,9 @@ pub struct Store {
     /// Matches as recorded by teammates, added by hand. Never counted on their own: they
     /// only fill in players in the user's match with the same match id.
     pub squad_replays: Vec<MatchRecord>,
+    /// Squadmates' own counts from the sync server, for every match. Kept by the online
+    /// mode in its own file; empty while it is off.
+    online: Vec<crate::online::Found>,
 }
 
 /// What a teammate's replay is linked to.
@@ -52,7 +55,7 @@ impl Store {
             .ok()
             .and_then(|text| serde_json::from_str::<StoreFile>(&text).ok())
             .unwrap_or_default();
-        let mut store = Self { path, matches: file.matches, squad_replays: file.squad_replays };
+        let mut store = Self { path, matches: file.matches, squad_replays: file.squad_replays, online: Vec::new() };
         store.sort();
         store.link();
         store
@@ -78,13 +81,22 @@ impl Store {
         self.link();
     }
 
+    /// Replaces the squadmates' counts from the sync server.
+    pub fn set_online(&mut self, found: Vec<crate::online::Found>) {
+        self.online = found;
+        self.link();
+    }
+
     /// Fills each match's `fuller` players from teammates' replays of the same match:
     /// a player's whole view is taken from whichever replay saw the most of their chests.
+    /// Also hands each match the squadmates' counts from the sync server.
     pub fn link(&mut self) {
         for m in &mut self.matches {
             m.fuller.clear();
             m.linked_from.clear();
+            m.online.clear();
             let Some(id) = m.match_id.clone() else { continue };
+            m.online.extend(self.online.iter().filter(|f| f.match_id == id).cloned());
             for other in self.squad_replays.iter().filter(|o| o.match_id.as_deref() == Some(id.as_str())) {
                 if other.id == m.id || same_owner(m, other) {
                     continue;
@@ -191,6 +203,7 @@ mod tests {
             bus_launch: None,
             fuller: Vec::new(),
             linked_from: Vec::new(),
+            online: Vec::new(),
         }
     }
 
@@ -216,6 +229,7 @@ mod tests {
             name: name.into(),
             team: Some(team),
             is_bot: false,
+            epic_id: None,
             opened: vec![ev; opened],
             broken: vec![],
         }
