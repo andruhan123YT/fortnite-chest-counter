@@ -108,6 +108,8 @@ pub struct Settings {
     pub dim_map: bool,
     /// Look for a newer release on GitHub every few minutes.
     pub check_updates: bool,
+    /// The sidebar shows icons only.
+    pub compact_nav: bool,
 }
 
 impl Default for Settings {
@@ -129,6 +131,7 @@ impl Default for Settings {
             breaks: BreakConfig::default(),
             dim_map: false,
             check_updates: true,
+            compact_nav: false,
         }
     }
 }

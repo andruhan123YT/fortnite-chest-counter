@@ -108,6 +108,17 @@ pub fn totals(matches: &[MatchRecord], settings: &Settings) -> Totals {
     t
 }
 
+/// The counted player's chests per day (the replay's local date), in counted matches.
+pub fn by_day(matches: &[MatchRecord], settings: &Settings) -> BTreeMap<chrono::NaiveDate, u64> {
+    let mut days = BTreeMap::new();
+    for m in counted(matches, settings) {
+        if let Some(at) = m.started_at {
+            *days.entry(at.date()).or_insert(0) += m.summary(&settings.nick).mine() as u64;
+        }
+    }
+    days
+}
+
 /// Running totals over time: `(unix seconds of the local wall clock, mine, teammates)`.
 pub fn running_totals(matches: &[MatchRecord], settings: &Settings) -> Vec<(f64, f64, f64)> {
     let mut points: Vec<_> =
@@ -199,6 +210,17 @@ mod tests {
         assert_eq!(series.len(), 3);
         assert_eq!(series.last().unwrap().1, 1008.0);
         assert_eq!(series.last().unwrap().2, 6.0);
+    }
+
+    #[test]
+    fn sums_chests_per_day() {
+        let settings = Settings { nick: "me".into(), ..Default::default() };
+        let matches =
+            vec![record("2026-11-08 10:00", 5, 0), record("2026-11-08 23:59", 3, 0), record("2026-11-09 00:10", 2, 0)];
+        let days = by_day(&matches, &settings);
+        let day = |s: &str| chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d").unwrap();
+        assert_eq!(days[&day("2026-11-08")], 8);
+        assert_eq!(days[&day("2026-11-09")], 2);
     }
 
     #[test]

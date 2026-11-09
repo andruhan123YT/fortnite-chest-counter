@@ -25,7 +25,63 @@ pub fn squad_count(n: u64) -> String {
     format!("{}+", thousands(n))
 }
 
+/// Font families with Windows' own Segoe UI Semibold and Bold, read from the system font
+/// folder (not shipped). Without them they fall back to the regular font.
+pub const SEMIBOLD: &str = "semibold";
+pub const BOLD: &str = "bold";
+/// Windows' own icon font (Segoe MDL2 Assets), for the sidebar.
+const ICONS: &str = "icons";
+static ICONS_LOADED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Glyphs of Segoe MDL2 Assets / Segoe Fluent Icons.
+pub mod icon {
+    pub const HOME: char = '\u{E80F}';
+    pub const LIST: char = '\u{E8FD}';
+    pub const CHART: char = '\u{E9D2}';
+    pub const MAP_PIN: char = '\u{E707}';
+    pub const PEOPLE: char = '\u{E716}';
+    pub const SETTINGS: char = '\u{E713}';
+    pub const MENU: char = '\u{E700}';
+    pub const DOWNLOAD: char = '\u{E896}';
+}
+
+/// An icon at `size`, or `fallback` text when Windows has no icon font.
+pub fn icon_text(glyph: char, fallback: &str, size: f32) -> RichText {
+    if ICONS_LOADED.load(std::sync::atomic::Ordering::Relaxed) {
+        RichText::new(glyph.to_string()).font(egui::FontId::new(size, egui::FontFamily::Name(ICONS.into())))
+    } else {
+        RichText::new(fallback).size(size * 0.8)
+    }
+}
+
+pub fn font(family: &str, size: f32) -> egui::FontId {
+    egui::FontId::new(size, egui::FontFamily::Name(family.into()))
+}
+
+fn load_fonts(ctx: &egui::Context) {
+    let mut fonts = egui::FontDefinitions::default();
+    let dir = std::env::var_os("WINDIR").map_or_else(|| "C:\\Windows".into(), std::path::PathBuf::from).join("Fonts");
+    let regular = fonts.families.get(&egui::FontFamily::Proportional).cloned().unwrap_or_default();
+    for (family, file) in [(SEMIBOLD, "seguisb.ttf"), (BOLD, "segoeuib.ttf")] {
+        let mut list = regular.clone();
+        if let Ok(bytes) = std::fs::read(dir.join(file)) {
+            fonts.font_data.insert(file.into(), std::sync::Arc::new(egui::FontData::from_owned(bytes)));
+            list.insert(0, file.into());
+        }
+        fonts.families.insert(egui::FontFamily::Name(family.into()), list);
+    }
+    let mut icons = regular;
+    if let Ok(bytes) = std::fs::read(dir.join("segmdl2.ttf")) {
+        fonts.font_data.insert(ICONS.into(), std::sync::Arc::new(egui::FontData::from_owned(bytes)));
+        icons.insert(0, ICONS.into());
+        ICONS_LOADED.store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    fonts.families.insert(egui::FontFamily::Name(ICONS.into()), icons);
+    ctx.set_fonts(fonts);
+}
+
 pub fn apply(ctx: &egui::Context) {
+    load_fonts(ctx);
     let mut visuals = egui::Visuals::dark();
     visuals.panel_fill = BG;
     visuals.window_fill = PANEL;
@@ -84,6 +140,24 @@ pub fn arrow_button(ui: &mut egui::Ui, left: bool, enabled: bool) -> egui::Respo
     let points = vec![c + egui::vec2(tip, 0.0), c + egui::vec2(back, -5.0), c + egui::vec2(back, 5.0)];
     ui.painter().add(egui::Shape::convex_polygon(points, color, Stroke::NONE));
     response
+}
+
+/// A small card: a caption over a bold number, with an optional note under it.
+pub fn tile(ui: &mut egui::Ui, label: &str, value: &str, color: Color32, note: Option<&str>) -> egui::Response {
+    egui::Frame::new()
+        .fill(CARD)
+        .corner_radius(CornerRadius::same(10))
+        .inner_margin(Margin::symmetric(12, 8))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.spacing_mut().item_spacing.y = 1.0;
+            ui.label(caption(label));
+            ui.label(RichText::new(value).font(font(BOLD, 22.0)).color(color));
+            if let Some(note) = note {
+                ui.add(egui::Label::new(caption(note)).truncate());
+            }
+        })
+        .response
 }
 
 pub struct Stat {

@@ -36,7 +36,23 @@ impl Page {
             Page::Settings => "Settings",
         }
     }
+
+    fn icon(self) -> char {
+        use theme::icon;
+        match self {
+            Page::Overview => icon::HOME,
+            Page::Matches => icon::LIST,
+            Page::Stats => icon::CHART,
+            Page::Map => icon::MAP_PIN,
+            Page::Squad => icon::PEOPLE,
+            Page::Settings => icon::SETTINGS,
+        }
+    }
 }
+
+/// Sidebar widths, open and folded to icons.
+const NAV_WIDE: f32 = 172.0;
+const NAV_NARROW: f32 = 54.0;
 
 #[derive(Debug, Default)]
 pub struct Activity {
@@ -86,8 +102,8 @@ pub fn run(start_minimized: bool) -> ExitCode {
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(APP_NAME)
-            .with_inner_size([1100.0, 760.0])
-            .with_min_inner_size([820.0, 560.0])
+            .with_inner_size([900.0, 600.0])
+            .with_min_inner_size([640.0, 440.0])
             .with_icon(icon)
             .with_visible(!start_minimized),
         ..Default::default()
@@ -447,53 +463,99 @@ impl ChestApp {
         }
     }
 
-    fn update_button(&mut self, ui: &mut egui::Ui) {
+    fn update_button(&mut self, ui: &mut egui::Ui, narrow: bool) {
+        let width = if narrow { NAV_NARROW - 16.0 } else { NAV_WIDE - 28.0 };
         if let Some(p) = self.update.installing {
-            ui.label(theme::caption("Updating..."));
-            ui.add(egui::ProgressBar::new(p).desired_width(160.0).show_percentage());
+            if !narrow {
+                ui.label(theme::caption("Updating..."));
+            }
+            ui.add(egui::ProgressBar::new(p).desired_width(width).show_percentage());
         } else if let Some(release) = &self.update.available {
-            let text = egui::RichText::new(format!("Update to v{}", crate::update::version_text(release.version)))
-                .strong()
-                .color(theme::BG);
-            let button = egui::Button::new(text).fill(theme::GOLD);
-            if ui.add_sized([160.0, 30.0], button).on_hover_text("Downloads it from GitHub and restarts").clicked() {
+            let version = crate::update::version_text(release.version);
+            let text = if narrow {
+                theme::icon_text(theme::icon::DOWNLOAD, "Up", 16.0)
+            } else {
+                egui::RichText::new(format!("Update to v{version}")).strong()
+            };
+            let button = egui::Button::new(text.color(theme::BG)).fill(theme::GOLD);
+            let hint = format!("Update to v{version}: downloads it from GitHub and restarts");
+            if ui.add_sized([width, 30.0], button).on_hover_text(hint).clicked() {
                 self.install_update();
             }
         }
     }
 
     fn navigation(&mut self, ui: &mut egui::Ui) {
+        let narrow = self.settings.compact_nav;
+        let width = if narrow { NAV_NARROW } else { NAV_WIDE };
         egui::Panel::left("nav")
             .resizable(false)
-            .exact_size(190.0)
-            .frame(egui::Frame::new().fill(theme::PANEL).inner_margin(egui::Margin::same(14)))
+            .exact_size(width)
+            .frame(egui::Frame::new().fill(theme::PANEL).inner_margin(egui::Margin::symmetric(8, 12)))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.add(egui::Image::new(&self.logo).fit_to_exact_size(egui::vec2(26.0, 26.0)));
-                    ui.label(egui::RichText::new("Chest Counter").size(17.0).strong().color(theme::GOLD));
+                    let toggle = egui::Button::new(theme::icon_text(theme::icon::MENU, "=", 16.0)).frame(false);
+                    let hint = if narrow { "Show the menu" } else { "Fold the menu to icons" };
+                    if ui.add_sized([NAV_NARROW - 16.0, 28.0], toggle).on_hover_text(hint).clicked() {
+                        self.settings.compact_nav = !narrow;
+                        let _ = self.settings.save();
+                    }
+                    if !narrow {
+                        ui.label(egui::RichText::new("Chest Counter").size(15.0).strong().color(theme::GOLD));
+                    }
                 });
-                ui.add_space(14.0);
+                ui.add_space(10.0);
                 for page in Page::ALL {
                     let selected = self.page == page;
-                    let text = egui::RichText::new(page.label()).size(15.0);
-                    let text = if selected { text.color(theme::GOLD).strong() } else { text };
-                    if ui.add_sized([160.0, 32.0], egui::Button::selectable(selected, text)).clicked() {
+                    let color = if selected { theme::GOLD } else { theme::TEXT };
+                    let icon = theme::icon_text(page.icon(), &page.label()[..1], 16.0).color(color);
+                    let response = if narrow {
+                        ui.add_sized([NAV_NARROW - 16.0, 34.0], egui::Button::selectable(selected, icon))
+                            .on_hover_text(page.label())
+                    } else {
+                        let mut job = egui::text::LayoutJob::default();
+                        icon.append_to(&mut job, ui.style(), egui::FontSelection::Default, egui::Align::Center);
+                        let label = egui::RichText::new(format!("   {}", page.label())).size(14.5).color(color);
+                        let label = if selected { label.strong() } else { label };
+                        label.append_to(&mut job, ui.style(), egui::FontSelection::Default, egui::Align::Center);
+                        let button = egui::Button::selectable(selected, job);
+                        ui.add_sized([NAV_WIDE - 16.0, 34.0], button)
+                    };
+                    if response.clicked() {
                         self.page = page;
                     }
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
                     ui.label(theme::caption(format!("v{}", env!("CARGO_PKG_VERSION"))));
-                    self.update_button(ui);
-                    self.activity_badge(ui);
+                    self.update_button(ui, narrow);
+                    self.activity_badge(ui, narrow);
                 });
             });
     }
 
-    fn activity_badge(&self, ui: &mut egui::Ui) {
+    fn activity_badge(&self, ui: &mut egui::Ui, narrow: bool) {
+        let width = if narrow { NAV_NARROW - 16.0 } else { NAV_WIDE - 28.0 };
         if let Some((file, fraction, queued)) = &self.activity.progress {
-            ui.add(egui::ProgressBar::new(*fraction).desired_width(160.0).show_percentage());
+            let bar = ui.add(egui::ProgressBar::new(*fraction).desired_width(width));
             let more = if *queued > 0 { format!(" (+{queued} queued)") } else { String::new() };
-            ui.label(theme::caption(format!("Analyzing {}{more}", short_name(file))));
+            let text = format!("Analyzing {}{more}", short_name(file));
+            if narrow {
+                bar.on_hover_text(text);
+            } else {
+                ui.label(theme::caption(text));
+            }
+        } else if narrow {
+            // A dot: green while a match is played, gold while watching, red when paused.
+            let (color, hint) = if self.activity.live_matches > 0 {
+                (theme::OPENED, "Match in progress")
+            } else if self.settings.watch {
+                (theme::GOLD, "Watching for new matches")
+            } else {
+                (theme::WARN, "Watching paused")
+            };
+            let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 14.0), egui::Sense::hover());
+            ui.painter().circle_filled(rect.center(), 4.0, color);
+            response.on_hover_text(hint);
         } else if self.activity.live_matches > 0 {
             ui.label(egui::RichText::new("Match in progress").color(theme::OPENED).size(12.5));
         } else if self.settings.watch {

@@ -21,6 +21,8 @@ const SCREEN_MARGIN: f32 = 16.0;
 const FORTNITE_CHECK_EVERY: Duration = Duration::from_secs(5);
 /// Side of the resize handle in the bottom right corner.
 const GRIP: f32 = 16.0;
+/// Width of the resize strips along the right and bottom edges.
+const EDGE: f32 = 6.0;
 
 #[derive(Default)]
 pub struct OverlayState {
@@ -35,7 +37,7 @@ pub struct OverlayState {
     /// What the content measured last frame; the window is sized to fit it.
     content: Option<egui::Vec2>,
     /// Pointer, scale and size when the resize handle was grabbed.
-    resize_from: Option<(egui::Pos2, f32, egui::Vec2)>,
+    resize_from: Option<(egui::Pos2, Axis, f32, egui::Vec2)>,
 }
 
 pub fn start_editing(app: &mut ChestApp) {
@@ -68,10 +70,25 @@ fn corner_position(corner: OverlayCorner, size: egui::Vec2, screen: egui::Vec2) 
     }
 }
 
-/// The scale after pulling the resize handle by `moved` from where it was grabbed, when
-/// the overlay had `size` at `scale`. Grows with whichever side was pulled further.
-fn resized_scale(scale: f32, size: egui::Vec2, moved: egui::Vec2) -> f32 {
-    let grow = ((size.x + moved.x) / size.x).max((size.y + moved.y) / size.y);
+/// Which way a resize handle pulls.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Axis {
+    Both,
+    Width,
+    Height,
+}
+
+/// The scale after pulling a resize handle by `moved` from where it was grabbed, when the
+/// overlay had `size` at `scale`. The text keeps its proportions, so an edge scales the
+/// whole overlay by how far that edge moved; the corner by whichever side moved further.
+fn resized_scale(scale: f32, size: egui::Vec2, moved: egui::Vec2, axis: Axis) -> f32 {
+    let wide = (size.x + moved.x) / size.x;
+    let tall = (size.y + moved.y) / size.y;
+    let grow = match axis {
+        Axis::Both => wide.max(tall),
+        Axis::Width => wide,
+        Axis::Height => tall,
+    };
     (scale * grow).clamp(MIN_SCALE, MAX_SCALE)
 }
 
@@ -88,8 +105,10 @@ fn live_badge(ui: &mut egui::Ui, scale: f32) {
                 let (dot, _) = ui.allocate_exact_size(egui::vec2(6.0, 10.0) * scale, Sense::hover());
                 ui.painter().circle_filled(dot.center(), 3.0 * scale, theme::OPENED);
                 ui.add(
-                    egui::Label::new(RichText::new("IN MATCH").size(10.0 * scale).strong().color(theme::OPENED))
-                        .extend(),
+                    egui::Label::new(
+                        RichText::new("IN MATCH").font(theme::font(theme::BOLD, 9.5 * scale)).color(theme::OPENED),
+                    )
+                    .extend(),
                 );
             });
         });
@@ -109,7 +128,7 @@ struct Interaction {
     lock: bool,
     at: Option<egui::Pos2>,
     content: Option<egui::Vec2>,
-    resize_grabbed: Option<egui::Pos2>,
+    resize_grabbed: Option<(egui::Pos2, Axis)>,
     resize_pointer: Option<egui::Pos2>,
     resize_released: bool,
 }
@@ -155,19 +174,12 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
     let mine = theme::thousands(t.mine());
     let nick = &app.settings.nick;
     let today = chrono::Local::now().date_naive();
-    let today_count: usize = app
-        .store
-        .matches
-        .iter()
-        .filter(|m| m.started_at.is_some_and(|at| at.date() == today) && app.settings.counts(m.started_at))
-        .map(|m| m.summary(nick).mine())
-        .sum();
-    let last = app.store.matches.first().map_or(0, |m| m.summary(nick).mine());
+    let today_count = crate::stats::by_day(&app.store.matches, &app.settings).get(&today).copied().unwrap_or(0);
+    let last = app.store.matches.first().map_or(0, |m| m.summary(nick).mine()).to_string();
     let stats = [
-        ("LAST MATCH", last.to_string()),
-        ("TODAY", theme::thousands(today_count as u64)),
-        ("SQUAD", theme::thousands(t.teammates as u64)),
-        ("TREASURES", t.treasures.to_string()),
+        ("TODAY", theme::thousands(today_count), theme::TEXT),
+        ("SQUAD", theme::thousands(t.teammates as u64), theme::SQUAD),
+        ("TREASURES", t.treasures.to_string(), theme::TREASURE),
     ];
     let live = app.activity.live_matches > 0;
 
@@ -196,52 +208,83 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
             }
             done.at = ui.ctx().input(|i| i.viewport().outer_rect).map(|r| r.min);
         }
+        ui.style_mut().interaction.selectable_labels = false;
         let frame = egui::Frame::new().fill(theme::BG).inner_margin(egui::Margin::same(margin as i8));
         egui::CentralPanel::default().frame(frame).show(ui, |ui| {
             // Measured in its own block: the panel itself always fills the window, so its
             // size says nothing about the text and would grow the window every frame.
+            ui.style_mut().interaction.selectable_labels = false;
             let text = ui.vertical(|ui| {
                 // Spacing shrinks and grows with the text, or small sizes run out of room.
                 ui.spacing_mut().item_spacing = egui::vec2(8.0, 2.0) * scale;
-                let caption =
-                    |t: &str| egui::Label::new(RichText::new(t).size(10.0 * scale).color(theme::MUTED)).extend();
+                let text = |t: &str, family: &str, size: f32, color: egui::Color32| {
+                    egui::Label::new(RichText::new(t).font(theme::font(family, size * scale)).color(color)).extend()
+                };
+                let caption = |t: &str| text(t, theme::SEMIBOLD, 9.5, theme::MUTED);
                 ui.horizontal(|ui| {
                     ui.add(caption("CHESTS"));
                     if live {
                         live_badge(ui, scale);
                     }
                 });
-                ui.add(egui::Label::new(RichText::new(&mine).size(30.0 * scale).strong().color(theme::GOLD)).extend());
+                ui.add_space(2.0 * scale);
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 18.0 * scale;
+                    ui.vertical(|ui| {
+                        ui.spacing_mut().item_spacing.y = 0.0;
+                        ui.add(text(&mine, theme::BOLD, 32.0, theme::GOLD));
+                        ui.add(caption("TOTAL"));
+                    });
+                    // The last match in a tile of its own.
+                    egui::Frame::new()
+                        .fill(theme::CARD)
+                        .stroke(Stroke::new(1.0, theme::CARD_HOVER))
+                        .corner_radius(egui::CornerRadius::same((6.0 * scale) as u8))
+                        .inner_margin(egui::Margin::symmetric((10.0 * scale) as i8, (4.0 * scale) as i8))
+                        .show(ui, |ui| {
+                            // As wide as its text: centered layouts take all the room they get.
+                            let width = |t: &str, family: &str, size: f32| {
+                                ui.painter()
+                                    .layout_no_wrap(t.to_owned(), theme::font(family, size * scale), theme::TEXT)
+                                    .size()
+                                    .x
+                            };
+                            ui.set_width(width(&last, theme::BOLD, 22.0).max(width(
+                                "LAST MATCH",
+                                theme::SEMIBOLD,
+                                9.5,
+                            )));
+                            ui.vertical_centered(|ui| {
+                                ui.spacing_mut().item_spacing.y = 0.0;
+                                ui.add(text(&last, theme::BOLD, 22.0, theme::TEXT));
+                                ui.add(caption("LAST MATCH"));
+                            });
+                        });
+                });
                 ui.add_space(6.0 * scale);
                 let row = ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 14.0 * scale;
-                    for (name, value) in &stats {
+                    ui.spacing_mut().item_spacing.x = 16.0 * scale;
+                    for (name, value, color) in &stats {
                         ui.vertical(|ui| {
+                            ui.spacing_mut().item_spacing.y = 0.0;
                             ui.add(caption(name));
-                            ui.add(
-                                egui::Label::new(RichText::new(value).size(15.0 * scale).strong().color(theme::TEXT))
-                                    .extend(),
-                            );
+                            ui.add(text(value, theme::BOLD, 14.0, *color));
                         });
                     }
                 });
-                // A hairline between the total and the numbers under it, as wide as they are.
+                // A hairline above the small numbers.
                 let r = row.response.rect;
-                let y = r.top() - 4.0 * scale;
+                let y = r.top() - 3.0 * scale;
                 ui.painter().line_segment(
-                    [egui::pos2(r.left(), y), egui::pos2(r.right(), y)],
+                    [egui::pos2(r.left(), y), egui::pos2(ui.min_rect().right(), y)],
                     Stroke::new(1.0, theme::CARD_HOVER),
                 );
             });
             done.content = Some(fit(text.response.rect.size(), margin, scale));
         });
         let painter = ui.painter();
-        // A gold edge on the left marks the panel; while it is being moved, a full frame.
-        painter.rect_filled(
-            egui::Rect::from_min_size(whole.min, egui::vec2(3.0 * scale, whole.height())),
-            0.0,
-            theme::GOLD,
-        );
+        // A thin border; while it is being moved, a gold frame.
+        painter.rect_stroke(whole, 0.0, Stroke::new(1.0, theme::CARD_HOVER), StrokeKind::Inside);
         if editing {
             painter.rect_stroke(whole, 0.0, Stroke::new(2.0, theme::GOLD), StrokeKind::Inside);
             let grip = egui::Rect::from_min_size(whole.max - egui::vec2(GRIP, GRIP), egui::vec2(GRIP, GRIP));
@@ -252,17 +295,32 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
                     Stroke::new(1.5, theme::GOLD),
                 );
             }
-            let resize = ui.interact(grip, ui.make_persistent_id("overlay_resize"), Sense::drag());
-            if resize.hovered() || resize.dragged() {
-                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeNwSe);
+            let right_edge = egui::Rect::from_min_max(
+                egui::pos2(whole.right() - EDGE, whole.top() + 28.0),
+                egui::pos2(whole.right(), whole.bottom() - GRIP),
+            );
+            let bottom_edge = egui::Rect::from_min_max(
+                egui::pos2(whole.left(), whole.bottom() - EDGE),
+                egui::pos2(whole.right() - GRIP, whole.bottom()),
+            );
+            let handles = [
+                (grip, Axis::Both, egui::CursorIcon::ResizeNwSe, "overlay_resize"),
+                (right_edge, Axis::Width, egui::CursorIcon::ResizeHorizontal, "overlay_resize_x"),
+                (bottom_edge, Axis::Height, egui::CursorIcon::ResizeVertical, "overlay_resize_y"),
+            ];
+            for (rect, axis, cursor, id) in handles {
+                let resize = ui.interact(rect, ui.make_persistent_id(id), Sense::drag());
+                if resize.hovered() || resize.dragged() {
+                    ui.ctx().set_cursor_icon(cursor);
+                }
+                if resize.drag_started() {
+                    done.resize_grabbed = resize.interact_pointer_pos().map(|p| (p, axis));
+                }
+                if resize.dragged() {
+                    done.resize_pointer = resize.interact_pointer_pos();
+                }
+                done.resize_released |= resize.drag_stopped();
             }
-            if resize.drag_started() {
-                done.resize_grabbed = resize.interact_pointer_pos();
-            }
-            if resize.dragged() {
-                done.resize_pointer = resize.interact_pointer_pos();
-            }
-            done.resize_released = resize.drag_stopped();
             let lock_at = egui::Rect::from_min_size(whole.right_top() + egui::vec2(-58.0, 4.0), egui::vec2(54.0, 20.0));
             let lock = egui::Button::new(RichText::new("Lock").size(12.0)).wrap_mode(egui::TextWrapMode::Extend);
             done.lock = ui.put(lock_at, lock).on_hover_text("Keep it here").clicked();
@@ -278,11 +336,13 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
     }
     // The window keeps its top left corner while it is resized, so pointer positions
     // inside it stay comparable from frame to frame.
-    if let Some(grabbed) = done.resize_grabbed {
-        app.overlay.resize_from = Some((grabbed, scale, size));
+    if let Some((grabbed, axis)) = done.resize_grabbed {
+        app.overlay.resize_from = Some((grabbed, axis, scale, size));
     }
-    if let (Some(pointer), Some((grabbed, from_scale, from_size))) = (done.resize_pointer, app.overlay.resize_from) {
-        app.settings.overlay.scale = resized_scale(from_scale, from_size, pointer - grabbed);
+    if let (Some(pointer), Some((grabbed, axis, from_scale, from_size))) =
+        (done.resize_pointer, app.overlay.resize_from)
+    {
+        app.settings.overlay.scale = resized_scale(from_scale, from_size, pointer - grabbed, axis);
     }
     if done.resize_released || !editing {
         app.overlay.resize_from = None;
@@ -305,12 +365,18 @@ mod tests {
     fn resize_follows_how_far_the_handle_moved() {
         let size = egui::vec2(200.0, 100.0);
         // Grabbing without moving changes nothing.
-        assert_eq!(resized_scale(1.0, size, egui::Vec2::ZERO), 1.0);
-        assert_eq!(resized_scale(1.0, size, egui::vec2(200.0, 0.0)), 2.0);
-        assert_eq!(resized_scale(1.0, size, egui::vec2(0.0, 50.0)), 1.5);
-        assert_eq!(resized_scale(1.0, size, egui::vec2(-100.0, -50.0)), 0.5);
-        assert_eq!(resized_scale(1.0, size, egui::vec2(-190.0, -90.0)), MIN_SCALE);
-        assert_eq!(resized_scale(2.0, size, egui::vec2(400.0, 0.0)), MAX_SCALE);
+        let both = |moved| resized_scale(1.0, size, moved, Axis::Both);
+        assert_eq!(both(egui::Vec2::ZERO), 1.0);
+        assert_eq!(both(egui::vec2(200.0, 0.0)), 2.0);
+        assert_eq!(both(egui::vec2(0.0, 50.0)), 1.5);
+        assert_eq!(both(egui::vec2(-100.0, -50.0)), 0.5);
+        assert_eq!(both(egui::vec2(-190.0, -90.0)), MIN_SCALE);
+        assert_eq!(resized_scale(2.0, size, egui::vec2(400.0, 0.0), Axis::Both), MAX_SCALE);
+        // An edge goes by its own direction only: pulling the right edge in shrinks it
+        // even though the height did not change.
+        assert_eq!(resized_scale(1.0, size, egui::vec2(-50.0, 0.0), Axis::Width), 0.75);
+        assert_eq!(resized_scale(1.0, size, egui::vec2(-50.0, 0.0), Axis::Both), 1.0);
+        assert_eq!(resized_scale(1.0, size, egui::vec2(80.0, 25.0), Axis::Height), 1.25);
     }
 
     #[test]
