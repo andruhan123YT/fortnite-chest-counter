@@ -1,0 +1,15 @@
+# Build output. Rebuild with `cargo build --release`.
+/target
+
+# Replay files. Large (5-30 MB each) and they contain other players' names.
+# Fortnite writes them to %LOCALAPPDATA%\FortniteGame\Saved\Demos.
+*.replay
+
+# Event dumps (`dump-events`), handy when debugging the parser.
+*.jsonl
+
+# Release archives. Rebuild with `python tools/package.py`.
+/dist
+
+# Epic profile saved by get-epic-profile.ps1. It holds the player's account data.
+epic-profile.json

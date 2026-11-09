@@ -1,0 +1,11 @@
+[package]
+name = "chests"
+version.workspace = true
+license.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+fnreplay.workspace = true
+serde.workspace = true
+serde_json.workspace = true
