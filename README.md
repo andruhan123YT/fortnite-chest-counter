@@ -12,6 +12,34 @@ at 1,000. This keeps going, per match.
 > replay files Fortnite saves on your PC. It doesn't touch the game process, its memory or
 > its network traffic.
 
+## Features
+
+**Online mode.** Your replay only sees a teammate's chests when they loot near you. If
+they run the app too, you get their real count instead. There's no friend list and no
+code to share: after each match the app sends your own numbers, and anyone who was in
+your squad that match gets them. You get theirs the same way. Their full count goes into
+your squad total and your prize odds, and the match shows a chest icon next to their
+name. It's on by default; Settings > Online turns it off. See [Privacy](#privacy) for
+what gets sent.
+
+- **Counts every chest you open or break**, match by match, from the replays Fortnite
+  already saves. Nothing to type, it reads who you are from the replay.
+- **Keeps counting past the quest's 1,000.** Start from where your quest is and every
+  match adds on top.
+- **Squad chests and Pirate Shop odds.** A prize goes to the whole squad, so the app
+  counts squad chests, your chance of at least one Pirate Shop Access token and the
+  treasures you've received.
+- **A timeline for every match**: each chest opened, broken with a pickaxe or rammed with
+  a vehicle, timed from the battle bus launch.
+- **A map** of where you looted, on the island with its location names.
+- **A running total chart**, with a line for every squadmate who runs the app.
+- **An in-game overlay** with your count. Click the lock in its corner to move and
+  resize it; locked, clicks go straight through to the game.
+- **Runs in the tray** and counts each match when you're back in the lobby, with a
+  notification.
+- **Keeps copies of your replays**, because Fortnite deletes everything past the last 100.
+- **Updates itself** from this repository's releases.
+
 ## Install
 
 1. Download `fortnite-chest-counter.exe` from the [latest release](../../releases/latest).
@@ -62,7 +90,8 @@ window from the tray icon for:
 - **Squad replays**: add replays your teammates recorded to fill in what yours missed.
 - **Settings**: replay folder, autostart, replay archiving, and an in-game overlay that
   shows your count on top of the game (off by default; mouse clicks pass through it).
-  Put it in a corner or press Move and resize to drag it anywhere and size it, then Lock.
+  Put it in a corner, or click the lock in its top right corner to drag it anywhere and
+  size it, then click the lock again.
 
 Fortnite keeps only your latest 100 replays. Turn on archiving in Settings to keep copies
 of counted matches, up to a size you choose. Chests from matches whose replays are already
