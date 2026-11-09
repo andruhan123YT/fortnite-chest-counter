@@ -24,10 +24,15 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
                     value: theme::thousands(me),
                     color: theme::GOLD,
                     note: Some(format!(
-                        "opened {} · broken {} · base {}",
+                        "opened {} · broken {} · base {}{}",
                         t.opened,
                         t.broken,
-                        theme::thousands(t.base)
+                        theme::thousands(t.base),
+                        if t.adjustment == 0 {
+                            String::new()
+                        } else {
+                            format!(" · by hand {}", crate::ui::settings::signed(t.adjustment))
+                        }
                     )),
                 },
                 theme::Stat {

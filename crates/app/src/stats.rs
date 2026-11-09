@@ -21,6 +21,8 @@ pub struct Totals {
     pub by_kind: BTreeMap<KindKey, (usize, usize)>,
     pub best_match: Option<(String, usize)>,
     pub base: u64,
+    /// Chests added or taken off by hand.
+    pub adjustment: i64,
     /// Treasure hunt prizes received in counted matches.
     pub treasures: usize,
 }
@@ -41,7 +43,8 @@ impl KindKey {
 
 impl Totals {
     pub fn mine(&self) -> u64 {
-        self.base + (self.opened + self.broken) as u64
+        let counted = self.base as i64 + (self.opened + self.broken) as i64 + self.adjustment;
+        counted.max(0) as u64
     }
 
     /// Mine plus teammates': what every squad-wide prize rolls on.
@@ -76,7 +79,7 @@ pub fn counted<'a>(matches: &'a [MatchRecord], settings: &'a Settings) -> impl I
 }
 
 pub fn totals(matches: &[MatchRecord], settings: &Settings) -> Totals {
-    let mut t = Totals { base: settings.base_count, ..Default::default() };
+    let mut t = Totals { base: settings.base_count, adjustment: settings.adjustment, ..Default::default() };
     for m in counted(matches, settings) {
         t.counted_matches += 1;
         t.minutes += m.length_minutes();
@@ -110,7 +113,8 @@ pub fn running_totals(matches: &[MatchRecord], settings: &Settings) -> Vec<(f64,
     let mut points: Vec<_> =
         counted(matches, settings).filter_map(|m| Some((m.started_at?, m.summary(&settings.nick)))).collect();
     points.sort_by_key(|(at, _)| *at);
-    let mut mine = settings.base_count as f64;
+    // Chests added by hand have no date; they count from the start, like the base.
+    let mut mine = (settings.base_count as i64 + settings.adjustment).max(0) as f64;
     let mut mates = 0.0;
     let mut out = Vec::with_capacity(points.len() + 1);
     if let Some((first, _)) = points.first() {
@@ -195,5 +199,21 @@ mod tests {
         assert_eq!(series.len(), 3);
         assert_eq!(series.last().unwrap().1, 1008.0);
         assert_eq!(series.last().unwrap().2, 6.0);
+    }
+
+    #[test]
+    fn chests_added_by_hand_count_and_never_go_below_zero() {
+        let matches = vec![record("2026-11-08 10:00", 5, 2)];
+        let settings = Settings { nick: "me".into(), base_count: 1000, adjustment: 25, ..Default::default() };
+        let t = totals(&matches, &settings);
+        assert_eq!(t.mine(), 1030);
+        assert_eq!(running_totals(&matches, &settings).last().unwrap().1, 1030.0);
+        // Prize odds for the replays' own chests leave hand-added ones out.
+        assert_eq!(t.counted_squad(), 7);
+
+        let settings = Settings { nick: "me".into(), adjustment: -3, ..settings };
+        assert_eq!(totals(&matches, &settings).mine(), 1002);
+        let settings = Settings { base_count: 0, adjustment: -100, ..settings };
+        assert_eq!(totals(&matches, &settings).mine(), 0);
     }
 }

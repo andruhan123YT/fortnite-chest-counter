@@ -27,10 +27,13 @@ const OUTLINE: f32 = 3.0;
 /// How much of the picture's brightness "Dim map" keeps.
 const DIMMED: u8 = 150;
 
-/// Where the map picture lives. Not shipped with the app: it is the game's artwork.
+/// A picture of the island the player chose instead of the built-in one.
 pub fn picture_path() -> PathBuf {
     data_dir().join("map.png")
 }
+
+/// The v43 island with location names, the picture the calibration below was fitted to.
+const BUILT_IN_PICTURE: &[u8] = include_bytes!("../../assets/map.png");
 
 /// Calibration of fortnite.gg's v43 map picture (2048 px, with or without names):
 /// `pixel = world * MAP_PX_PER_UNIT + MAP_ORIGIN_PX`. Fitted to 3,854 chest positions
@@ -50,8 +53,12 @@ fn picture_rect(size: [usize; 2]) -> (PlotPoint, egui::Vec2) {
     (PlotPoint::new(cx, cy), egui::vec2((w / 100.0) as f32, (h / 100.0) as f32))
 }
 
-fn load_picture(ctx: &egui::Context, path: &Path) -> Result<TextureHandle, String> {
-    let image = image::open(path).map_err(|e| e.to_string())?.to_rgba8();
+fn load_picture(ctx: &egui::Context, path: Option<&Path>) -> Result<TextureHandle, String> {
+    let image = match path {
+        Some(path) => image::open(path),
+        None => image::load_from_memory(BUILT_IN_PICTURE),
+    };
+    let image = image.map_err(|e| e.to_string())?.to_rgba8();
     let size = [image.width() as usize, image.height() as usize];
     let color = egui::ColorImage::from_rgba_unmultiplied(size, image.as_raw());
     Ok(ctx.load_texture("map_picture", color, TextureOptions::LINEAR))
@@ -92,19 +99,35 @@ impl Default for MapUi {
 }
 
 impl MapUi {
+    /// The player's own picture when there is one, otherwise the built-in island.
     fn ensure_picture(&mut self, ctx: &egui::Context) {
         if self.picture_tried {
             return;
         }
         self.picture_tried = true;
         let path = picture_path();
-        if !path.exists() {
-            return;
+        if path.exists() {
+            match load_picture(ctx, Some(&path)) {
+                Ok(texture) => {
+                    self.picture = Some(texture);
+                    return;
+                }
+                Err(e) => self.picture_error = Some(format!("Could not read {}: {e}", path.display())),
+            }
         }
-        match load_picture(ctx, &path) {
+        match load_picture(ctx, None) {
             Ok(texture) => self.picture = Some(texture),
-            Err(e) => self.picture_error = Some(format!("Could not read {}: {e}", path.display())),
+            Err(e) => self.picture_error = Some(format!("Could not load the built-in map: {e}")),
         }
+    }
+
+    /// Drops the player's own picture and goes back to the built-in island.
+    fn use_built_in(&mut self, ctx: &egui::Context) {
+        let _ = std::fs::remove_file(picture_path());
+        self.picture = None;
+        self.picture_error = None;
+        self.picture_tried = false;
+        self.ensure_picture(ctx);
     }
 
     /// Copies a picture the player chose into the data folder and shows it.
@@ -167,11 +190,18 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
                 let _ = app.settings.save();
             }
         }
-        let choose = if ui_state.picture.is_some() { "Change picture..." } else { "Add map picture..." };
-        if cfg!(windows) && ui.button(choose).clicked() {
+        if cfg!(windows)
+            && ui
+                .button("Change picture...")
+                .on_hover_text("Use your own PNG of the island, framed like the built-in one")
+                .clicked()
+        {
             if let Some(path) = super::settings::pick_file("PNG picture", "png") {
                 ui_state.replace_picture(ui.ctx(), &path);
             }
+        }
+        if picture_path().exists() && ui.button("Use built-in map").clicked() {
+            ui_state.use_built_in(ui.ctx());
         }
     });
     ui.label(theme::caption(
@@ -179,10 +209,6 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
     ));
     if let Some(error) = &app.map_ui.picture_error {
         ui.label(RichText::new(error).color(theme::BROKEN));
-    } else if app.map_ui.picture.is_none() {
-        ui.label(theme::caption(
-            "No map picture yet. Save the v43 map from fortnite.gg as a 2048 px PNG, location names included, and add it here.",
-        ));
     }
 
     let nick = app.settings.nick.clone();
@@ -465,11 +491,19 @@ fn picked_panel(ui: &mut egui::Ui, picked: Option<&Resolved<'_>>, scope: Scope) 
 mod tests {
     use chests::{ChestEvent, ChestKind, PlayerChests};
 
-    use super::{picture_rect, plot_point, resolve, PickedChest, Series, MAP_ORIGIN_PX, MAP_PX_PER_UNIT};
+    use super::{
+        picture_rect, plot_point, resolve, PickedChest, Series, MAP_ORIGIN_PX, MAP_PX_PER_UNIT, MAP_REFERENCE_PX,
+    };
     use crate::record::MatchRecord;
 
     fn chest(time: f32) -> ChestEvent {
         ChestEvent { time, kind: ChestKind::Normal, in_vehicle: false, x: Some(1.0), y: Some(1.0) }
+    }
+
+    #[test]
+    fn built_in_picture_matches_the_calibration() {
+        let image = image::load_from_memory(super::BUILT_IN_PICTURE).unwrap();
+        assert_eq!((image.width(), image.height()), (MAP_REFERENCE_PX as u32, MAP_REFERENCE_PX as u32));
     }
 
     #[test]

@@ -41,8 +41,11 @@ pub fn apply(ctx: &egui::Context) {
     }
     visuals.widgets.inactive.weak_bg_fill = CARD;
     visuals.widgets.hovered.weak_bg_fill = CARD_HOVER;
-    ctx.set_visuals(visuals);
-    ctx.global_style_mut(|style| {
+    // The app is dark only. Left to follow the system, egui swaps in its stock light
+    // style on a light Windows theme, under panels that stay dark.
+    ctx.set_theme(egui::ThemePreference::Dark);
+    ctx.set_visuals_of(egui::Theme::Dark, visuals);
+    ctx.style_mut_of(egui::Theme::Dark, |style| {
         style.spacing.item_spacing = egui::vec2(8.0, 6.0);
         style.spacing.button_padding = egui::vec2(10.0, 5.0);
     });
@@ -137,6 +140,20 @@ pub fn thousands(n: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stays_dark_on_a_light_windows_theme() {
+        let ctx = egui::Context::default();
+        apply(&ctx);
+        let input = egui::RawInput { system_theme: Some(egui::Theme::Light), ..Default::default() };
+        // A frame that reports a light system theme, as eframe passes it on.
+        ctx.run_ui(input, |_| {}).textures_delta.clear();
+        assert_eq!(ctx.theme(), egui::Theme::Dark);
+        let style = ctx.global_style();
+        assert_eq!(style.visuals.panel_fill, BG);
+        assert_eq!(style.visuals.override_text_color, Some(TEXT));
+        assert_eq!(style.spacing.button_padding, egui::vec2(10.0, 5.0));
+    }
 
     #[test]
     fn formats_numbers() {

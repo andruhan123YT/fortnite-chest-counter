@@ -89,6 +89,9 @@ pub struct Settings {
     pub nick: String,
     /// Chests counted before the first replay, e.g. a finished in-game quest.
     pub base_count: u64,
+    /// Chests the player added (or, below zero, took off) by hand, for matches the
+    /// replays missed.
+    pub adjustment: i64,
     /// Only matches started at or after this local time add to the total.
     pub count_since: Option<NaiveDateTime>,
     pub replay_dir: PathBuf,
@@ -113,6 +116,7 @@ impl Default for Settings {
             setup_done: false,
             nick: String::new(),
             base_count: 0,
+            adjustment: 0,
             count_since: None,
             replay_dir: default_replay_dir(),
             watch: true,

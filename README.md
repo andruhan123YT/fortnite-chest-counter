@@ -55,17 +55,18 @@ window from the tray icon for:
   or rammed with a vehicle. Times count from the moment the battle bus launched.
 - **Stats & odds**: chests by type, chests needed for a 25/50/90% chance, expected drops
   for every reward and how lucky you've been so far.
-- **Map**: where you opened and broke chests. Click a marker to see which chest of the
-  match it was and when; the arrows step through the rest of that match's chests. Add a
-  picture of the island, location names included (Map > Add map picture), to see them
-  over the map.
+- **Map**: where you opened and broke chests, over the island with its location names.
+  Click a marker to see which chest of the match it was and when; the arrows step through
+  the rest of that match's chests. Map > Change picture swaps in your own picture of the
+  island.
 - **Squad replays**: add replays your teammates recorded to fill in what yours missed.
 - **Settings**: replay folder, autostart, replay archiving, and an in-game overlay that
   shows your count on top of the game (off by default; mouse clicks pass through it).
   Put it in a corner or press Move and resize to drag it anywhere and size it, then Lock.
 
 Fortnite keeps only your latest 100 replays. Turn on archiving in Settings to keep copies
-of counted matches, up to a size you choose.
+of counted matches, up to a size you choose. Chests from matches whose replays are already
+gone can be added by hand under Settings > Counting > Added by hand (a minus takes some off).
 
 Everything the app stores lives in `%APPDATA%\Fortnite Chest Counter`.
 
@@ -188,10 +189,9 @@ runs the tests, builds the exe, its `.sha256` and the zip and publishes them as 
 (`.github/workflows/release.yml`). Installed apps offer the update within 10 minutes. They
 look for exactly those two file names, so keep them.
 
-Not in this repository: build output (`target\`, `dist\`), replay files (5 to 30 MB each,
-and they contain other players' names), and the map picture, which is the game's artwork.
-To use the map picture, save the v43 map from fortnite.gg as a 2048 px PNG (with or
-without location names) and add it in the app under Map > Add map picture.
+Not in this repository: build output (`target\`, `dist\`) and replay files (5 to 30 MB
+each, and they contain other players' names). The island picture the map shows is
+`crates/app/assets/map.png`, built into the exe.
 
 ## How it works
 

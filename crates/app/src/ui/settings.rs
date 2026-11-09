@@ -14,6 +14,7 @@ use crate::{archive, theme};
 pub struct SettingsUi {
     pub nick: String,
     pub base: String,
+    pub adjustment: String,
     pub since: String,
     pub replay_dir: String,
     pub archive_dir: String,
@@ -26,6 +27,7 @@ impl SettingsUi {
         Self {
             nick: s.nick.clone(),
             base: s.base_count.to_string(),
+            adjustment: signed(s.adjustment),
             since: s.count_since.map(|d| d.format(SINCE_FORMAT).to_string()).unwrap_or_default(),
             replay_dir: s.replay_dir.display().to_string(),
             archive_dir: s.archive.dir.display().to_string(),
@@ -50,11 +52,32 @@ impl SettingsUi {
         };
         settings.nick = nick.to_string();
         settings.base_count = base;
+        settings.adjustment = parse_adjustment(&self.adjustment)?;
         settings.count_since = since;
         settings.replay_dir = PathBuf::from(self.replay_dir.trim());
         settings.archive.dir = PathBuf::from(self.archive_dir.trim());
         Ok(())
     }
+}
+
+/// `+25`, `-3` or `0`, the way the adjustment field shows it.
+pub fn signed(n: i64) -> String {
+    if n > 0 {
+        format!("+{n}")
+    } else {
+        n.to_string()
+    }
+}
+
+/// Reads the adjustment field: a whole number, optionally signed; empty means none.
+fn parse_adjustment(text: &str) -> Result<i64, String> {
+    let text = text.trim().replace([',', ' '], "");
+    if text.is_empty() {
+        return Ok(0);
+    }
+    text.trim_start_matches('+')
+        .parse::<i64>()
+        .map_err(|_| "Chests added by hand must be a whole number, like +25 or -3.".to_string())
 }
 
 pub fn pick_folder(current: &str) -> Option<String> {
@@ -123,13 +146,29 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
                 ui.label("Base count");
                 ui.add(egui::TextEdit::singleline(&mut app.settings_ui.base).desired_width(120.0));
                 ui.end_row();
+                ui.label("Added by hand");
+                ui.horizontal(|ui| {
+                    let field = &mut app.settings_ui.adjustment;
+                    let current = parse_adjustment(field).unwrap_or(0);
+                    if ui.small_button(" - ").on_hover_text("One chest fewer").clicked() {
+                        *field = signed(current - 1);
+                    }
+                    ui.add(egui::TextEdit::singleline(field).hint_text("0").desired_width(80.0));
+                    if ui.small_button(" + ").on_hover_text("One chest more").clicked() {
+                        *field = signed(current + 1);
+                    }
+                    ui.label(theme::caption("then Save"));
+                });
+                ui.end_row();
                 ui.label("Count matches from");
                 ui.add(egui::TextEdit::singleline(&mut app.settings_ui.since).hint_text("2026-11-07 22:39").desired_width(160.0));
                 ui.end_row();
             });
             ui.label(theme::caption(
                 "The base is what you already had when you started counting, e.g. 1000 for a finished 1000-chest quest. \
-                 Only matches started at or after the start time are added to it. Leave the time empty to count every match.",
+                 Only matches started at or after the start time are added to it. Leave the time empty to count every match. \
+                 Added by hand is for chests the replays missed, say from matches whose replays Fortnite deleted \
+                 (it keeps only 100) before the app saw them; a minus takes chests off.",
             ));
             ui.add_space(6.0);
             crate::ui::quest_start::show(ui, &mut app.quest_import, &mut app.settings_ui, &app.store.matches);
@@ -360,4 +399,20 @@ fn section(ui: &mut egui::Ui, title: &str, add: impl FnOnce(&mut egui::Ui)) {
         add(ui);
     });
     ui.add_space(10.0);
+}
+
+#[cfg(test)]
+mod adjustment_tests {
+    use super::{parse_adjustment, signed};
+
+    #[test]
+    fn reads_signed_whole_numbers() {
+        assert_eq!(parse_adjustment("+25"), Ok(25));
+        assert_eq!(parse_adjustment(" -3 "), Ok(-3));
+        assert_eq!(parse_adjustment("1,200"), Ok(1200));
+        assert_eq!(parse_adjustment(""), Ok(0));
+        assert!(parse_adjustment("lots").is_err());
+        assert!(parse_adjustment("2.5").is_err());
+        assert_eq!((signed(25), signed(0), signed(-3)), ("+25".to_string(), "0".to_string(), "-3".to_string()));
+    }
 }
