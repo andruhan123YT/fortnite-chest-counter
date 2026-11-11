@@ -47,6 +47,8 @@ what gets sent.
 2. In Fortnite, turn on **Settings > Game > Replays > Record Battle Royale Replays**.
 3. Run the exe. It isn't code-signed, so SmartScreen may show "Windows protected your PC".
    Click **More info > Run anyway**, or [build it yourself](#build-from-source).
+   The first run puts a shortcut on your desktop that points at the exe where it is, so
+   move the exe to where you want to keep it before that.
 
 Windows 10 or 11, 64-bit.
 
@@ -97,7 +99,10 @@ Fortnite keeps only your latest 100 replays. Turn on archiving in Settings to ke
 of counted matches, up to a size you choose. Chests from matches whose replays are already
 gone can be added by hand under Settings > Counting > Added by hand (a minus takes some off).
 
-Everything the app stores lives in `%APPDATA%\Fortnite Chest Counter`.
+Everything the app stores lives in `%APPDATA%\Fortnite Chest Counter`. Each data file
+keeps the version before the last save as `<name>.bak`. A file that can't be read is
+renamed to `<name>.corrupt-<time>`, never overwritten, and the app carries on from the
+`.bak`.
 
 ### Teammates' chests
 
@@ -147,7 +152,9 @@ password, the sign-in code or the session. It only reads the file you give it, o
 ## Privacy
 
 - The app reads replay files from your PC and writes its data to
-  `%APPDATA%\Fortnite Chest Counter`.
+  `%APPDATA%\Fortnite Chest Counter`. In the registry it adds the autostart entry (when
+  on) and `HKCU\Software\Classes\AppUserModelId\FortniteChestCounter`, which gives its
+  notifications its own name and icon.
 - It asks GitHub for this repository's latest release every 10 minutes (Settings >
   Updates turns it off). Nothing about you goes with that.
 - Online mode (on by default; Settings > Online turns it off) sends `chests.l4ve.dev` your

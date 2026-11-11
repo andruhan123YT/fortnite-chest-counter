@@ -83,7 +83,8 @@ fn pirate_shop(app: &ChestApp, ui: &mut egui::Ui) {
         ui.label(RichText::new("Pirate Shop Access").size(17.0).strong().color(theme::GOLD));
         ui.label(theme::caption(format!(
             "1 in {} per chest, opened or broken. The whole squad gets it when anyone in the squad does. \
-             Squad chests here are only those seen near you, so the squad's real chance is higher.",
+             Squadmates who run the app count in full, from their own replays. For the rest, only the chests \
+             your replay saw count, so the squad's real chance can be higher.",
             theme::thousands(one_in as u64)
         )));
         ui.add_space(6.0);

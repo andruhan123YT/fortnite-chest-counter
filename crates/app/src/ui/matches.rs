@@ -38,13 +38,10 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
 }
 
 fn table(app: &mut ChestApp, ui: &mut egui::Ui) {
-    let nick = app.settings.nick.clone();
-    let rows: Vec<_> = app
-        .store
-        .matches
-        .iter()
-        .map(|m| (m.id.clone(), m.summary(&nick), app.settings.counts(m.started_at), m.clone()))
-        .collect();
+    // Only the rows on screen are drawn: each reads its match in place, so a long
+    // history costs nothing per frame.
+    let mut clicked = None;
+    let view = &*app;
     // Selectable labels take the click for text selection, so a click on a cell's
     // text would never reach the row.
     ui.style_mut().interaction.selectable_labels = false;
@@ -70,11 +67,13 @@ fn table(app: &mut ChestApp, ui: &mut egui::Ui) {
             }
         })
         .body(|body| {
-            body.rows(24.0, rows.len(), |mut row| {
-                let (id, s, counted, m) = &rows[row.index()];
-                row.set_selected(app.selected_match.as_deref() == Some(id.as_str()));
+            body.rows(24.0, view.store.matches.len(), |mut row| {
+                let m = &view.store.matches[row.index()];
+                let s = m.summary(&view.settings.nick);
+                let counted = view.settings.counts(m.started_at);
+                row.set_selected(view.selected_match.as_deref() == Some(m.id.as_str()));
                 let dim =
-                    |text: String| if *counted { RichText::new(text) } else { RichText::new(text).color(theme::MUTED) };
+                    |text: String| if counted { RichText::new(text) } else { RichText::new(text).color(theme::MUTED) };
                 row.col(|ui| {
                     let when = m
                         .started_at
@@ -95,7 +94,7 @@ fn table(app: &mut ChestApp, ui: &mut egui::Ui) {
                     ui.label(dim(s.broken.to_string()));
                 });
                 row.col(|ui| {
-                    ui.label(RichText::new(s.mine().to_string()).strong().color(if *counted {
+                    ui.label(RichText::new(s.mine().to_string()).strong().color(if counted {
                         theme::GOLD
                     } else {
                         theme::MUTED
@@ -118,10 +117,13 @@ fn table(app: &mut ChestApp, ui: &mut egui::Ui) {
                     ui.label(theme::caption(notes.join(" · ")));
                 });
                 if row.response().clicked() {
-                    app.selected_match = Some(id.clone());
+                    clicked = Some(m.id.clone());
                 }
             });
         });
+    if clicked.is_some() {
+        app.selected_match = clicked;
+    }
 }
 
 fn detail(app: &mut ChestApp, ui: &mut egui::Ui, m: &MatchRecord) {

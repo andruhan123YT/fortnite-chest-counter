@@ -1,6 +1,6 @@
 //! Settings page.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use eframe::egui::{self, RichText};
 
@@ -61,7 +61,7 @@ impl SettingsUi {
         settings.adjustment = parse_adjustment(&self.adjustment)?;
         settings.count_since = since;
         settings.replay_dir = PathBuf::from(self.replay_dir.trim());
-        settings.archive.dir = PathBuf::from(self.archive_dir.trim());
+        settings.archive.dir = crate::config::archive_dir_or_default(Path::new(self.archive_dir.trim()));
         Ok(())
     }
 }
@@ -287,6 +287,8 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
                         app.settings = settings;
                         app.settings_ui.error = None;
                         app.settings_ui.archive_usage = None;
+                        // An empty or relative folder was replaced with the default.
+                        app.settings_ui.archive_dir = app.settings.archive.dir.display().to_string();
                         app.apply_settings(true);
                         app.activity.push_log("Settings saved".into());
                         if nick_changed {

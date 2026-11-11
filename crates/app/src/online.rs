@@ -15,7 +15,7 @@ use chests::same_name;
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
-use crate::config::{data_dir, write_json_atomically};
+use crate::config::{data_dir, load_json, write_json_atomically};
 use crate::record::MatchRecord;
 
 pub const SERVER: &str = "https://chests.l4ve.dev";
@@ -116,9 +116,15 @@ fn is_id(text: &str) -> bool {
     text.len() == 32 && text.bytes().all(|b| b.is_ascii_hexdigit())
 }
 
+/// Match start times are the recording PC's clock, without a time zone.
 fn unix(at: NaiveDateTime) -> i64 {
-    at.and_utc().timestamp()
+    at.and_local_timezone(chrono::Local).earliest().map_or_else(|| at.and_utc().timestamp(), |t| t.timestamp())
 }
+
+/// Matches whose squadmates were all found are asked about again this often, for as
+/// long as `RECHECK_FOUND_FOR` after the match.
+const RECHECK_FOUND_EVERY: i64 = 12 * 3600;
+const RECHECK_FOUND_FOR: i64 = 3 * 86_400;
 
 /// How long to wait before asking about a match again. Squadmates' apps send their
 /// numbers once their replay is done, usually minutes after the match, sometimes when
@@ -161,12 +167,21 @@ fn plan(matches: &[MatchRecord], saved: &Saved, install: &str, now: i64) -> Job 
             .filter_map(|p| p.epic_id.clone().filter(|id| is_id(id)))
             .collect();
         let known = |id: &String| saved.found.iter().any(|f| f.match_id == match_id && &f.player == id);
-        if mates.is_empty() || mates.iter().all(known) || lookup.len() >= MAX_LOOKUP {
+        if mates.is_empty() || lookup.len() >= MAX_LOOKUP {
             continue;
         }
         let age = m.started_at.map_or(i64::MAX, |at| now - unix(at));
+        let every = if !mates.iter().all(known) {
+            ask_every(age)
+        } else if age < RECHECK_FOUND_FOR {
+            // Everyone is found, but a squadmate's app may still count their replay again,
+            // say after an update to the analysis.
+            RECHECK_FOUND_EVERY
+        } else {
+            continue;
+        };
         let last = saved.asked.get(match_id).copied().unwrap_or(i64::MIN / 2);
-        if now - last >= ask_every(age) {
+        if now - last >= every {
             lookup.push(LookupMatch { match_id: match_id.to_owned(), players: mates });
         }
     }
@@ -259,8 +274,7 @@ impl Sync {
     }
 
     pub fn start(path: PathBuf, repaint: impl Fn() + Send + 'static) -> Self {
-        let mut saved: Saved =
-            std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        let mut saved: Saved = load_json(&path).value;
         // Squadmates may have started the app while this one was closed: the first round
         // asks about every match still missing someone, whenever it was last asked.
         saved.asked.clear();
@@ -437,9 +451,18 @@ mod tests {
         saved.asked.insert(id.into(), at("2026-11-10 18:30"));
         assert!(plan(std::slice::from_ref(&m), &saved, "i", at("2026-11-10 18:45")).lookup.is_empty());
         assert_eq!(plan(std::slice::from_ref(&m), &saved, "i", at("2026-11-10 19:00")).lookup.len(), 1);
-        // Once every squadmate is found, never again.
+        // Once every squadmate is found, twice a day for three days, then never again.
         saved.found.push(Found { match_id: id.into(), player: MATE.into(), name: "Mate".into(), opened: 9, broken: 1 });
-        assert!(plan(&[m], &saved, "i", at("2026-11-12 00:00")).is_empty());
+        assert!(plan(std::slice::from_ref(&m), &saved, "i", at("2026-11-11 06:00")).is_empty());
+        assert_eq!(plan(std::slice::from_ref(&m), &saved, "i", at("2026-11-11 06:30")).lookup.len(), 1);
+        saved.asked.insert(id.into(), at("2026-11-12 17:00"));
+        assert!(plan(&[m], &saved, "i", at("2026-11-13 06:00")).is_empty());
+    }
+
+    #[test]
+    fn match_times_are_read_as_local_time() {
+        let now = chrono::Local::now();
+        assert!((unix(now.naive_local()) - now.timestamp()).abs() <= 1);
     }
 
     #[test]

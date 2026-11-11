@@ -48,14 +48,20 @@ fn main() -> ExitCode {
 }
 
 /// The GUI build has no console, so a panic would vanish without a trace. Append it to
-/// `crash.log` next to the settings.
+/// `crash.log` next to the settings. Past 1 MB the log becomes `crash.old.log` and a new
+/// one starts, so caught parser panics cannot fill the disk.
 fn log_panics() {
+    const MAX_LOG: u64 = 1024 * 1024;
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         use std::io::Write;
         let dir = config::data_dir();
         let _ = std::fs::create_dir_all(&dir);
-        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join("crash.log")) {
+        let path = dir.join("crash.log");
+        if std::fs::metadata(&path).is_ok_and(|m| m.len() > MAX_LOG) {
+            let _ = std::fs::rename(&path, dir.join("crash.old.log"));
+        }
+        if let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) {
             let thread = std::thread::current();
             let _ = writeln!(
                 file,

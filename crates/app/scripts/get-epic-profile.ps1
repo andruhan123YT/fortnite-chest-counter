@@ -37,7 +37,14 @@ Write-Host ''
 Start-Process $CodePage
 
 $pasted = Read-Host 'Paste it here and press Enter'
-$code = [regex]::Match($pasted, '[0-9a-fA-F]{32}').Value
+# The page has other 32-character ids too, so take the code by its name, then from the
+# redirect link, then a bare code pasted on its own.
+$patterns = '"authorizationCode"\s*:\s*"([0-9a-fA-F]{32})"', '[?&]code=([0-9a-fA-F]{32})', '^\s*([0-9a-fA-F]{32})\s*$'
+$code = ''
+foreach ($pattern in $patterns) {
+    $code = [regex]::Match($pasted, $pattern).Groups[1].Value
+    if ($code) { break }
+}
 if (-not $code) {
     Write-Host 'No code found in what you pasted. Run the script again.' -ForegroundColor Red
     Read-Host 'Press Enter to close'

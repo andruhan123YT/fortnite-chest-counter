@@ -1,5 +1,5 @@
-//! Small OS integrations: single instance, console output for CLI use, autostart and
-//! toast notifications. Everything is a no-op outside Windows.
+//! Small OS integrations: single instance, console output for CLI use, autostart, toast
+//! notifications and the desktop shortcut. Everything is a no-op outside Windows.
 
 use crate::APP_NAME;
 
@@ -65,13 +65,14 @@ mod imp {
         loop {
             // SAFETY: as in `activate_existing_instance`. A handle to a mutex someone else
             // still holds is closed again; the one that wins is kept for the process.
+            // No handle at all means the call failed: that is no claim either.
             let claimed = unsafe {
                 let handle = CreateMutexW(std::ptr::null(), 0, mutex_name.as_ptr());
                 let taken = GetLastError() == ERROR_ALREADY_EXISTS;
                 if taken && !handle.is_null() {
                     CloseHandle(handle);
                 }
-                !taken
+                !handle.is_null() && !taken
             };
             if claimed {
                 return true;
@@ -139,9 +140,67 @@ mod imp {
         }
     }
 
+    /// The id notifications are sent under, registered by `register_notifications`.
+    const APP_USER_MODEL_ID: &str = "FortniteChestCounter";
+    static NOTIFY_AS_APP: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+    /// Gives notifications the app's name and icon. Windows only shows notifications from
+    /// apps it knows: a desktop app without an installer becomes known through this key,
+    /// otherwise its notifications have to borrow PowerShell's id.
+    pub fn register_notifications(icon: &std::path::Path) -> std::io::Result<()> {
+        use winreg::enums::HKEY_CURRENT_USER;
+        let key_path = format!(r"Software\Classes\AppUserModelId\{APP_USER_MODEL_ID}");
+        let (key, _) = winreg::RegKey::predef(HKEY_CURRENT_USER).create_subkey(key_path)?;
+        key.set_value("DisplayName", &APP_NAME)?;
+        key.set_value("IconUri", &icon.display().to_string())?;
+        NOTIFY_AS_APP.store(true, std::sync::atomic::Ordering::Relaxed);
+        Ok(())
+    }
+
     pub fn notify(title: &str, body: &str) {
         use tauri_winrt_notification::Toast;
-        let _ = Toast::new(Toast::POWERSHELL_APP_ID).title(title).text1(body).show();
+        let show = |id: &str| Toast::new(id).title(title).text1(body).show();
+        if !NOTIFY_AS_APP.load(std::sync::atomic::Ordering::Relaxed) || show(APP_USER_MODEL_ID).is_err() {
+            let _ = show(Toast::POWERSHELL_APP_ID);
+        }
+    }
+
+    /// Puts a shortcut to this executable on the desktop, unless one is there already.
+    pub fn create_desktop_shortcut() -> std::io::Result<std::path::PathBuf> {
+        let desktop = dirs::desktop_dir().ok_or_else(|| std::io::Error::other("no desktop folder"))?;
+        let link_path = desktop.join(format!("{APP_NAME}.lnk"));
+        if !link_path.exists() {
+            create_shortcut(&link_path, &std::env::current_exe()?)?;
+        }
+        Ok(link_path)
+    }
+
+    /// Writes a Windows shortcut at `link_path` that starts `target`.
+    pub fn create_shortcut(link_path: &std::path::Path, target: &std::path::Path) -> std::io::Result<()> {
+        use windows::core::{Interface, HSTRING};
+        use windows::Win32::System::Com::{
+            CoCreateInstance, CoInitializeEx, CoUninitialize, IPersistFile, CLSCTX_INPROC_SERVER,
+            COINIT_APARTMENTTHREADED,
+        };
+        use windows::Win32::UI::Shell::{IShellLinkW, ShellLink};
+
+        let folder = target.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+        // SAFETY: COM is set up on this thread for the calls below and released after;
+        // every interface is used only while alive and dropped before `CoUninitialize`.
+        unsafe {
+            let initialized = CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok();
+            let saved = (|| -> windows::core::Result<()> {
+                let link: IShellLinkW = CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER)?;
+                link.SetPath(&HSTRING::from(target.as_os_str()))?;
+                link.SetWorkingDirectory(&HSTRING::from(folder.as_os_str()))?;
+                link.SetDescription(&HSTRING::from("Counts the Fortnite chests you open and break"))?;
+                link.cast::<IPersistFile>()?.Save(&HSTRING::from(link_path.as_os_str()), true)
+            })();
+            if initialized {
+                CoUninitialize();
+            }
+            saved.map_err(std::io::Error::other)
+        }
     }
 
     /// Primary monitor size in physical pixels.
@@ -243,8 +302,14 @@ mod imp {
     pub fn set_autostart(_enabled: bool) -> std::io::Result<()> {
         Ok(())
     }
+    pub fn register_notifications(_icon: &std::path::Path) -> std::io::Result<()> {
+        Ok(())
+    }
     pub fn notify(title: &str, body: &str) {
         eprintln!("[{}] {title}: {body}", super::APP_NAME);
+    }
+    pub fn create_desktop_shortcut() -> std::io::Result<std::path::PathBuf> {
+        Err(std::io::Error::other("only on Windows"))
     }
     pub fn primary_screen_size() -> Option<(f32, f32)> {
         None
@@ -270,6 +335,18 @@ fn select_arg(path: &std::path::Path) -> String {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(windows)]
+    #[test]
+    fn writes_a_shortcut() {
+        let dir = std::env::temp_dir().join(format!("fcc-shortcut-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let link = dir.join("test.lnk");
+        super::create_shortcut(&link, &std::env::current_exe().unwrap()).unwrap();
+        // Every shortcut file starts with its header size, 0x4C.
+        assert_eq!(std::fs::read(&link).unwrap()[..4], [0x4C, 0, 0, 0]);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn select_keeps_the_switch_outside_the_quotes() {
         let path = std::path::Path::new(r"C:\Roaming\Fortnite Chest Counter\Epic profile\get-epic-profile.bat");

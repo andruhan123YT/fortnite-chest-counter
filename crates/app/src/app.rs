@@ -128,9 +128,28 @@ pub fn run(start_minimized: bool) -> ExitCode {
     }
 }
 
+/// Registers the notification name and icon and, on the very first run, puts a shortcut
+/// on the desktop. Off the UI thread: both touch the disk and the registry.
+fn set_up_shell(first_run: bool) {
+    let icon = crate::config::data_dir().join("icon.png");
+    let registered = image::save_buffer(&icon, &icon::chest_rgba(128), 128, 128, image::ExtendedColorType::Rgba8)
+        .map_err(std::io::Error::other)
+        .and_then(|()| platform::register_notifications(&icon));
+    if let Err(e) = registered {
+        crate::config::log_event(&format!("notifications stay under PowerShell's name: {e}"));
+    }
+    if first_run {
+        crate::config::log_event(&match platform::create_desktop_shortcut() {
+            Ok(path) => format!("first run: desktop shortcut at {}", path.display()),
+            Err(e) => format!("first run: no desktop shortcut: {e}"),
+        });
+    }
+}
+
 impl ChestApp {
     fn new(ctx: &egui::Context, start_minimized: bool) -> Self {
-        let mut settings = Settings::load();
+        let (mut settings, first_run) = Settings::load_first_run();
+        std::thread::spawn(move || set_up_shell(first_run));
         if settings.install_id.is_empty() {
             settings.install_id = crate::online::new_install_id();
             let _ = settings.save();

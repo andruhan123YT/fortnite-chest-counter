@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use chests::BreakConfig;
 use chrono::NaiveDateTime;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::APP_NAME;
@@ -150,10 +151,14 @@ impl Default for Settings {
 
 impl Settings {
     pub fn load() -> Self {
-        std::fs::read_to_string(settings_path())
-            .ok()
-            .and_then(|text| serde_json::from_str(&text).ok())
-            .unwrap_or_default()
+        Self::load_first_run().0
+    }
+
+    /// The settings, and whether there were none yet: the first run of the app.
+    pub fn load_first_run() -> (Self, bool) {
+        let Loaded { mut value, fresh } = load_json::<Self>(&settings_path());
+        value.archive.dir = archive_dir_or_default(&value.archive.dir);
+        (value, fresh)
     }
 
     pub fn save(&self) -> std::io::Result<()> {
@@ -177,6 +182,9 @@ pub fn data_dir() -> PathBuf {
 /// traced after the fact. Starts over once the file passes 256 KB.
 pub fn log_event(message: &str) {
     use std::io::Write;
+    if cfg!(test) {
+        return;
+    }
     let dir = data_dir();
     let path = dir.join("app.log");
     let _ = std::fs::create_dir_all(&dir);
@@ -199,15 +207,111 @@ pub fn default_archive_dir() -> PathBuf {
     dirs::data_local_dir().unwrap_or_else(std::env::temp_dir).join(APP_NAME).join("Replays")
 }
 
-/// Writes through a temporary file so a crash never leaves half a file behind.
-pub fn write_json_atomically<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
+/// An empty or relative archive folder would put copies wherever the app happens to run.
+pub fn archive_dir_or_default(dir: &Path) -> PathBuf {
+    if dir.is_absolute() {
+        dir.to_path_buf()
+    } else {
+        default_archive_dir()
+    }
+}
+
+/// Writes through a temporary file that reaches the disk before it replaces the old one,
+/// so a crash or power cut never leaves half a file behind. The old file is kept as
+/// `<name>.bak` for `load_json`.
+pub fn write_json_atomically<T: Serialize + ?Sized>(path: &Path, value: &T) -> std::io::Result<()> {
+    use std::io::Write;
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
+    let text = serde_json::to_vec_pretty(value).map_err(std::io::Error::other)?;
     let tmp = path.with_extension("json.tmp");
-    let text = serde_json::to_string_pretty(value).map_err(std::io::Error::other)?;
-    std::fs::write(&tmp, text)?;
+    {
+        let mut file = std::fs::File::create(&tmp)?;
+        file.write_all(&text)?;
+        file.sync_all()?;
+    }
+    if path.exists() {
+        std::fs::copy(path, backup_path(path))?;
+    }
     std::fs::rename(&tmp, path)
+}
+
+fn backup_path(path: &Path) -> PathBuf {
+    path.with_extension("json.bak")
+}
+
+/// A JSON file read by `load_json`.
+pub struct Loaded<T> {
+    pub value: T,
+    /// The file did not exist: the app runs for the first time, or it was deleted.
+    pub fresh: bool,
+}
+
+enum Read<T> {
+    Ok(T),
+    Missing,
+    Bad(String),
+}
+
+fn read_json<T: DeserializeOwned>(path: &Path) -> Read<T> {
+    let mut attempt = 0;
+    let bytes = loop {
+        match std::fs::read(path) {
+            Ok(bytes) => break bytes,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Read::Missing,
+            // Another program, say a virus scanner, may hold the file for a moment.
+            Err(_) if attempt < 5 => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            Err(e) => return Read::Bad(e.to_string()),
+        }
+    };
+    match serde_json::from_slice(&bytes) {
+        Ok(value) => Read::Ok(value),
+        Err(e) => Read::Bad(e.to_string()),
+    }
+}
+
+/// Moves a file that cannot be read out of the way, so the next save does not replace it.
+fn set_aside(path: &Path, why: &str) {
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let aside = path.with_file_name(format!("{name}.corrupt-{}", chrono::Local::now().format("%Y%m%d-%H%M%S")));
+    let moved = std::fs::rename(path, &aside).or_else(|_| std::fs::copy(path, &aside).map(drop));
+    log_event(&format!(
+        "cannot read {name} ({why}); {}",
+        match moved {
+            Ok(()) => format!("kept it as {}", aside.display()),
+            Err(e) => format!("could not keep a copy: {e}"),
+        }
+    ));
+}
+
+/// Reads a file written by `write_json_atomically`. One that does not parse is moved
+/// aside as `<name>.corrupt-<time>` and the copy from the save before is used instead,
+/// so a damaged file is never overwritten with defaults.
+pub fn load_json<T: DeserializeOwned + Default>(path: &Path) -> Loaded<T> {
+    match read_json(path) {
+        Read::Ok(value) => return Loaded { value, fresh: false },
+        Read::Missing => return Loaded { value: T::default(), fresh: true },
+        Read::Bad(why) => set_aside(path, &why),
+    }
+    let backup = backup_path(path);
+    match read_json(&backup) {
+        Read::Ok(value) => {
+            log_event(&format!("restored {} from {}", path.display(), backup.display()));
+            if std::fs::copy(&backup, path).is_err() {
+                log_event(&format!("could not write {} back", path.display()));
+            }
+            Loaded { value, fresh: false }
+        }
+        Read::Missing => Loaded { value: T::default(), fresh: false },
+        Read::Bad(why) => {
+            set_aside(&backup, &why);
+            Loaded { value: T::default(), fresh: false }
+        }
+    }
 }
 
 pub fn parse_since(text: &str) -> Option<NaiveDateTime> {
@@ -226,6 +330,69 @@ mod tests {
         assert_eq!(parse_since("2026-11-07 22:39").unwrap().to_string(), "2026-11-07 22:39:00");
         assert_eq!(parse_since(" 2026-11-07 ").unwrap().to_string(), "2026-11-07 00:00:00");
         assert!(parse_since("yesterday").is_none());
+    }
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("fcc-config-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn corrupt_copies(dir: &Path) -> usize {
+        std::fs::read_dir(dir)
+            .unwrap()
+            .filter(|e| e.as_ref().unwrap().file_name().to_string_lossy().contains(".corrupt-"))
+            .count()
+    }
+
+    #[test]
+    fn a_missing_file_is_a_fresh_start() {
+        let dir = temp_dir("missing");
+        let loaded = load_json::<Settings>(&dir.join("settings.json"));
+        assert!(loaded.fresh);
+        assert_eq!(loaded.value, Settings::default());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_damaged_file_is_kept_and_the_backup_used() {
+        let dir = temp_dir("damaged");
+        let path = dir.join("settings.json");
+        let first = Settings { base_count: 1000, ..Default::default() };
+        write_json_atomically(&path, &first).unwrap();
+        let second = Settings { base_count: 1200, ..Default::default() };
+        write_json_atomically(&path, &second).unwrap();
+        // A power cut can leave the file empty.
+        std::fs::write(&path, "").unwrap();
+
+        let loaded = load_json::<Settings>(&path);
+        assert!(!loaded.fresh);
+        assert_eq!(loaded.value.base_count, 1000, "the save before the damaged one");
+        assert_eq!(corrupt_copies(&dir), 1);
+        // The backup went back in place, so a crash before the next save loses nothing.
+        assert_eq!(load_json::<Settings>(&path).value.base_count, 1000);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn a_damaged_file_without_backup_is_not_overwritten() {
+        let dir = temp_dir("nobackup");
+        let path = dir.join("matches.json");
+        std::fs::write(&path, "{\"matches\": [").unwrap();
+        let loaded = load_json::<Settings>(&path);
+        assert!(!loaded.fresh, "a damaged file is no first run");
+        assert!(!path.exists());
+        assert_eq!(corrupt_copies(&dir), 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn relative_archive_folders_fall_back_to_the_default() {
+        assert_eq!(archive_dir_or_default(Path::new("")), default_archive_dir());
+        assert_eq!(archive_dir_or_default(Path::new("replays")), default_archive_dir());
+        let absolute = std::env::temp_dir().join("archive");
+        assert_eq!(archive_dir_or_default(&absolute), absolute);
     }
 
     #[test]

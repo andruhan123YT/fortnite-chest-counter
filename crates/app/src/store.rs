@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use chests::same_name;
 
-use crate::config::{data_dir, write_json_atomically};
+use crate::config::{data_dir, load_json, write_json_atomically};
 use crate::record::MatchRecord;
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -16,6 +16,14 @@ struct StoreFile {
     matches: Vec<MatchRecord>,
     #[serde(default)]
     squad_replays: Vec<MatchRecord>,
+}
+
+/// `StoreFile` by reference, so saving does not copy every match.
+#[derive(Serialize)]
+struct StoreFileRef<'a> {
+    version: u32,
+    matches: &'a [MatchRecord],
+    squad_replays: &'a [MatchRecord],
 }
 
 #[derive(Debug, Default)]
@@ -51,10 +59,7 @@ impl Store {
     }
 
     pub fn load(path: PathBuf) -> Self {
-        let file = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|text| serde_json::from_str::<StoreFile>(&text).ok())
-            .unwrap_or_default();
+        let file = load_json::<StoreFile>(&path).value;
         let mut store = Self { path, matches: file.matches, squad_replays: file.squad_replays, online: Vec::new() };
         store.sort();
         store.link();
@@ -64,7 +69,7 @@ impl Store {
     pub fn save(&self) -> std::io::Result<()> {
         write_json_atomically(
             &self.path,
-            &StoreFile { version: 1, matches: self.matches.clone(), squad_replays: self.squad_replays.clone() },
+            &StoreFileRef { version: 1, matches: &self.matches, squad_replays: &self.squad_replays },
         )
     }
 
