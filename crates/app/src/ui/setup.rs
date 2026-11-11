@@ -95,9 +95,7 @@ fn name_step(app: &mut ChestApp, ui: &mut egui::Ui) {
             .desired_width(f32::INFINITY),
     );
     ui.add_space(8.0);
-    ui.label(theme::caption(
-        "Replays must be on: Fortnite > Settings > Game > Replays > Record Battle Royale Replays.",
-    ));
+    ui.label(theme::caption("Replays must be on: Fortnite > Settings > Game > Replays > Record Replays."));
 }
 
 fn counting_step(app: &mut ChestApp, ui: &mut egui::Ui) {

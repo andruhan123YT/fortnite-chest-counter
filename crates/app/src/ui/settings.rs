@@ -22,6 +22,8 @@ pub struct SettingsUi {
     pub archive_usage: Option<u64>,
     /// Names for Running total lines, one per line.
     pub online_lines: String,
+    /// The stream overlay port while it is being edited.
+    pub stream_port: u16,
 }
 
 impl SettingsUi {
@@ -35,6 +37,7 @@ impl SettingsUi {
             archive_dir: s.archive.dir.display().to_string(),
             error: None,
             archive_usage: None,
+            stream_port: s.stream.port,
             online_lines: s.online_lines.join(
                 "
 ",
@@ -185,6 +188,7 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
                 folder_row(ui, "Replay folder", &mut app.settings_ui.replay_dir);
             });
             ui.checkbox(&mut app.settings.watch, "Watch the folder and count new matches automatically");
+            ui.checkbox(&mut app.settings.warn_unrecorded, "Warn me when Fortnite plays a match without saving its replay");
             ui.label(theme::caption("Fortnite keeps only the latest 100 replays on PC and deletes older ones."));
             ui.add_space(6.0);
             ui.checkbox(&mut app.settings.archive.enabled, "Keep a copy of every counted replay");
@@ -267,6 +271,8 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
                  The lock in its top right corner unlocks it for moving too, and locks it again.",
             ));
         });
+
+        section(ui, "Stream overlay (OBS)", |ui| stream(app, ui));
 
         section(ui, "Windows", |ui| {
             ui.checkbox(&mut app.settings.start_with_windows, "Start with Windows (in the tray)");
@@ -358,6 +364,61 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
             }
         });
     });
+}
+
+fn stream(app: &mut ChestApp, ui: &mut egui::Ui) {
+    let mut changed =
+        ui.checkbox(&mut app.settings.stream.enabled, "Show your count in OBS or other streaming apps").changed();
+    ui.add_enabled_ui(app.settings.stream.enabled, |ui| {
+        let link = crate::stream::link(app.settings.stream.port);
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new(&link).monospace().color(theme::GOLD));
+            if ui.button("Copy link").clicked() {
+                ui.ctx().copy_text(link.clone());
+            }
+            if ui.button("Open in browser").clicked() {
+                if let Err(e) = crate::platform::open_url(&link) {
+                    app.activity.push_log(format!("Could not open the browser: {e}"));
+                }
+            }
+            ui.label("Port");
+            let port = ui.add(egui::DragValue::new(&mut app.settings_ui.stream_port).range(1024..=65535));
+            // Moves the server once the number is set, not on every step of a drag.
+            if !port.dragged() && !port.has_focus() && app.settings_ui.stream_port != app.settings.stream.port {
+                app.settings.stream.port = app.settings_ui.stream_port;
+                app.stream.retry();
+                changed = true;
+            }
+        });
+        if let Some(error) = &app.stream.error {
+            ui.label(RichText::new(error).color(theme::WARN));
+        } else if app.stream.running_port().is_some() {
+            ui.label(theme::caption("Running. The page picks up new numbers within two seconds."));
+        }
+        ui.horizontal_wrapped(|ui| {
+            ui.label("Show");
+            let show = &mut app.settings.stream.show;
+            changed |= ui.checkbox(&mut show.last_match, "Last match").changed();
+            changed |= ui.checkbox(&mut show.today, "Today").changed();
+            changed |= ui.checkbox(&mut show.squad, "Squad").changed();
+            changed |= ui.checkbox(&mut show.treasures, "Treasures").changed();
+            changed |= ui.checkbox(&mut show.in_match, "IN MATCH badge").changed();
+        });
+        ui.horizontal(|ui| {
+            ui.label("Background");
+            let slider = egui::Slider::new(&mut app.settings.stream.background, 0..=100).suffix("%");
+            let r = ui.add(slider);
+            // The page follows the slider live; the file is written once it is let go.
+            changed |= r.drag_stopped() || (r.changed() && !r.dragged());
+        });
+    });
+    if changed {
+        let _ = app.settings.save();
+    }
+    ui.label(theme::caption(
+        "In OBS: Sources > + > Browser, paste the link, set the width to 400 and the height to 220. The background \
+         is transparent. Only this PC can open the page, and nothing goes online.",
+    ));
 }
 
 fn online(app: &mut ChestApp, ui: &mut egui::Ui) {

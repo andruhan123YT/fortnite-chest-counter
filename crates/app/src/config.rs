@@ -97,6 +97,8 @@ pub struct Settings {
     pub count_since: Option<NaiveDateTime>,
     pub replay_dir: PathBuf,
     pub watch: bool,
+    /// Warn when Fortnite's log shows a match played without a replay.
+    pub warn_unrecorded: bool,
     pub notifications: bool,
     pub start_with_windows: bool,
     pub close_to_tray: bool,
@@ -119,6 +121,8 @@ pub struct Settings {
     pub online_lines: Vec<String>,
     /// Random id of this installation, sent with uploads.
     pub install_id: String,
+    /// The overlay page for OBS.
+    pub stream: crate::stream::StreamSettings,
 }
 
 impl Default for Settings {
@@ -131,6 +135,7 @@ impl Default for Settings {
             count_since: None,
             replay_dir: default_replay_dir(),
             watch: true,
+            warn_unrecorded: true,
             notifications: true,
             start_with_windows: true,
             close_to_tray: true,
@@ -145,6 +150,7 @@ impl Default for Settings {
             online_lines_all: true,
             online_lines: Vec::new(),
             install_id: String::new(),
+            stream: Default::default(),
         }
     }
 }

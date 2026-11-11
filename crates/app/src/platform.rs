@@ -111,6 +111,11 @@ mod imp {
         std::process::Command::new("explorer").raw_arg(super::select_arg(path)).spawn().map(drop)
     }
 
+    /// Opens a web address in the default browser.
+    pub fn open_url(url: &str) -> std::io::Result<()> {
+        std::process::Command::new("explorer").arg(url).spawn().map(drop)
+    }
+
     pub fn show_main_window() {
         let title = wide(APP_NAME);
         // SAFETY: `title` is a valid null-terminated UTF-16 string; a null class matches any.
@@ -309,6 +314,9 @@ mod imp {
         eprintln!("[{}] {title}: {body}", super::APP_NAME);
     }
     pub fn create_desktop_shortcut() -> std::io::Result<std::path::PathBuf> {
+        Err(std::io::Error::other("only on Windows"))
+    }
+    pub fn open_url(_url: &str) -> std::io::Result<()> {
         Err(std::io::Error::other("only on Windows"))
     }
     pub fn primary_screen_size() -> Option<(f32, f32)> {

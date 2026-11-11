@@ -1,0 +1,99 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Fortnite Chest Counter</title>
+<style>
+  /* --bg: how solid the card is, 0..1, from the app's Background slider. */
+  :root { --bg: 0.86; }
+  html, body { margin: 0; background: transparent; overflow: hidden; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; color: #e4e6eb; padding: 8px; }
+  .card {
+    display: inline-flex; background: rgba(18, 20, 26, var(--bg));
+    border: 1px solid rgba(255, 255, 255, calc(0.09 * var(--bg)));
+    border-radius: 10px; overflow: hidden; box-shadow: 0 4px 18px rgba(0, 0, 0, calc(0.4 * var(--bg)));
+    /* Keeps the numbers readable over the game once the card fades out. */
+    text-shadow: 0 1px 3px rgba(0, 0, 0, calc(0.9 * (1 - var(--bg))));
+  }
+  .bar { width: 6px; background: #f5be3c; }
+  .body { padding: 12px 18px 14px 14px; }
+  .head { display: flex; align-items: center; gap: 10px; }
+  .title { font-weight: 700; font-size: 13px; letter-spacing: 0.14em; color: #f5be3c; }
+  .live {
+    display: none; align-items: center; gap: 5px; font-weight: 700; font-size: 10px; letter-spacing: 0.08em;
+    color: #5ec27a; background: rgba(94, 194, 122, 0.14); border-radius: 4px; padding: 2px 6px;
+  }
+  .live::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #5ec27a; }
+  .live.on { display: inline-flex; }
+  .main { display: flex; align-items: flex-end; gap: 18px; margin-top: 2px; }
+  .total { font-weight: 700; font-size: 52px; line-height: 1.05; font-variant-numeric: tabular-nums; }
+  .tile { padding-bottom: 8px; }
+  .label { font-weight: 600; font-size: 10px; letter-spacing: 0.1em; color: #969caa; }
+  .value { font-weight: 700; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .row { display: flex; gap: 22px; margin-top: 8px; padding-top: 8px; border-top: 1px solid rgba(255, 255, 255, calc(0.09 * var(--bg))); }
+  .row:empty { display: none; }
+  .squad { color: #5aa9e6; }
+  .treasures { color: #c48cff; }
+  .hidden { display: none !important; }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="bar"></div>
+  <div class="body">
+    <div class="head"><span class="title">CHESTS</span><span class="live" id="live">IN MATCH</span></div>
+    <div class="main">
+      <div class="total" id="total">0</div>
+      <div class="tile" id="last_match_tile"><div class="label">LAST MATCH</div><div class="value" id="last_match">0</div></div>
+    </div>
+    <div class="row" id="row">
+      <div id="today_tile"><div class="label">TODAY</div><div class="value" id="today">0</div></div>
+      <div id="squad_tile"><div class="label">SQUAD</div><div class="value squad" id="squad">0</div></div>
+      <div id="treasures_tile"><div class="label">TREASURES</div><div class="value treasures" id="treasures">0</div></div>
+    </div>
+  </div>
+</div>
+<script>
+  // Filled in by the app; a different tag from /data means the app has a newer page.
+  const PAGE_TAG = "__PAGE_TAG__";
+  const shown = {};
+  const fmt = (n) => Math.round(n).toLocaleString("en-US");
+
+  // New numbers count up to their value instead of jumping.
+  function animate(id, to) {
+    const el = document.getElementById(id);
+    const from = shown[id] ?? to;
+    shown[id] = to;
+    if (from === to) { el.textContent = fmt(to); return; }
+    const start = performance.now();
+    const step = (now) => {
+      const t = Math.min(1, (now - start) / 900);
+      el.textContent = fmt(from + (to - from) * (1 - Math.pow(1 - t, 3)));
+      if (t < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+  function show(id, on) { document.getElementById(id).classList.toggle("hidden", !on); }
+
+  async function refresh() {
+    try {
+      const d = await (await fetch("/data", { cache: "no-store" })).json();
+      if (d.page && d.page !== PAGE_TAG) { location.reload(); return; }
+      for (const key of ["total", "last_match", "today", "squad", "treasures"]) animate(key, d[key]);
+      show("last_match_tile", d.show.last_match);
+      show("today_tile", d.show.today);
+      show("squad_tile", d.show.squad);
+      show("treasures_tile", d.show.treasures);
+      show("row", d.show.today || d.show.squad || d.show.treasures);
+      document.getElementById("live").classList.toggle("on", d.show.in_match && d.in_match);
+      document.documentElement.style.setProperty("--bg", d.background / 100);
+    } catch (e) {
+      // The app is closed or restarting: keep the last numbers on screen.
+    }
+  }
+  refresh();
+  setInterval(refresh, 2000);
+</script>
+</body>
+</html>

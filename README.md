@@ -35,8 +35,13 @@ what gets sent.
 - **A running total chart**, with a line for every squadmate who runs the app.
 - **An in-game overlay** with your count. Click the lock in its corner to move and
   resize it; locked, clicks go straight through to the game.
+- **A stream overlay for OBS**: your count as a Browser source with a transparent
+  background, updating on its own after every match.
 - **Runs in the tray** and counts each match when you're back in the lobby, with a
   notification.
+- **Tells you when a match wasn't recorded.** It follows Fortnite's own log, so if replays
+  are off (or land in another folder) you hear about it after one match, not at the end
+  of the season.
 - **Keeps copies of your replays**, because Fortnite deletes everything past the last 100.
 - **Updates itself** from this repository's releases.
 
@@ -44,7 +49,7 @@ what gets sent.
 
 1. Download `fortnite-chest-counter.exe` from the [latest release](../../releases/latest).
    It's a single file with no installer and no dependencies.
-2. In Fortnite, turn on **Settings > Game > Replays > Record Battle Royale Replays**.
+2. In Fortnite, turn on **Settings > Game > Replays > Record Replays**.
 3. Run the exe. It isn't code-signed, so SmartScreen may show "Windows protected your PC".
    Click **More info > Run anyway**, or [build it yourself](#build-from-source).
    The first run puts a shortcut on your desktop that points at the exe where it is, so
@@ -94,6 +99,18 @@ window from the tray icon for:
   shows your count on top of the game (off by default; mouse clicks pass through it).
   Put it in a corner, or click the lock in its top right corner to drag it anywhere and
   size it, then click the lock again.
+
+**Stream overlay.** Settings > Stream overlay (OBS) serves your count as a small web page
+at `http://127.0.0.1:47321/` (off by default; the port can be changed). In OBS add
+Sources > + > Browser, paste the link and set the size to 400 x 220. The background is
+transparent, new numbers count up after each match, checkboxes pick which rows to show,
+and the Background slider sets how solid the card behind the numbers is (0% leaves just the
+numbers). Only this PC can open the page.
+
+If Fortnite's log shows a Battle Royale match that ended without a replay, the app warns you
+once (Settings > Replays turns it off). It also warns when Fortnite recorded a match but
+the replay isn't in the replay folder set in the app. Other modes, like Creative, are left
+alone, since they don't save replays by default.
 
 Fortnite keeps only your latest 100 replays. Turn on archiving in Settings to keep copies
 of counted matches, up to a size you choose. Chests from matches whose replays are already
@@ -151,10 +168,12 @@ password, the sign-in code or the session. It only reads the file you give it, o
 
 ## Privacy
 
-- The app reads replay files from your PC and writes its data to
+- The app reads replay files and Fortnite's log from your PC and writes its data to
   `%APPDATA%\Fortnite Chest Counter`. In the registry it adds the autostart entry (when
   on) and `HKCU\Software\Classes\AppUserModelId\FortniteChestCounter`, which gives its
   notifications its own name and icon.
+- The stream overlay, when on, listens on `127.0.0.1` only and answers only requests
+  addressed to this PC, so neither your network nor other websites can read it.
 - It asks GitHub for this repository's latest release every 10 minutes (Settings >
   Updates turns it off). Nothing about you goes with that.
 - Online mode (on by default; Settings > Online turns it off) sends `chests.l4ve.dev` your

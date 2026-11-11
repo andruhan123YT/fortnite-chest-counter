@@ -91,12 +91,20 @@ pub struct ChestApp {
     pub online: crate::online::Sync,
     /// Whether the store currently holds squadmates' counts from the sync server.
     online_shown: bool,
+    pub stream: crate::stream::Stream,
     pub logo: egui::TextureHandle,
     /// Frames left in which to keep the window hidden after a `--minimized` start.
     /// eframe shows the window after its first frame regardless of the builder.
     hide_frames: u8,
     quitting: bool,
     tray_status: (String, bool, bool),
+    /// Matches Fortnite's log saw end.
+    game_log: Receiver<crate::gamelog::Played>,
+    /// Recorded matches whose replay file should be in the folder by the given time.
+    replay_checks: Vec<(std::time::Instant, std::time::SystemTime)>,
+    /// A warning was shown and nothing has changed since: not again for every match.
+    warned_unrecorded: bool,
+    warned_no_file: bool,
 }
 
 pub fn run(start_minimized: bool) -> ExitCode {
@@ -176,6 +184,9 @@ impl ChestApp {
         let online =
             crate::online::Sync::start(crate::online::Sync::default_path(), move || online_ctx.request_repaint());
 
+        let log_ctx = ctx.clone();
+        let game_log = crate::gamelog::watch(&crate::gamelog::log_path(), move || log_ctx.request_repaint());
+
         let tray = crate::tray::create(ctx, settings.watch, settings.overlay.enabled);
         if start_minimized && tray.is_none() {
             ctx.send_viewport_cmd(ViewportCommand::Visible(true));
@@ -204,6 +215,7 @@ impl ChestApp {
             update: Default::default(),
             online,
             online_shown: false,
+            stream: Default::default(),
             logo: ctx.load_texture(
                 "logo",
                 egui::ColorImage::from_rgba_unmultiplied([128, 128], &icon::chest_rgba(128)),
@@ -212,6 +224,10 @@ impl ChestApp {
             hide_frames,
             quitting: false,
             tray_status: Default::default(),
+            game_log,
+            replay_checks: Vec::new(),
+            warned_unrecorded: false,
+            warned_no_file: false,
         };
         app.refresh_totals();
         #[cfg(debug_assertions)]
@@ -448,6 +464,55 @@ impl ChestApp {
             && self.store.matches.iter().any(|m| m.match_id.as_deref() == Some(id) && m.id != record.id)
     }
 
+    /// Warns, once until things look right again, when Fortnite played a match without a
+    /// replay, or recorded one that never showed up in the replay folder.
+    fn process_game_log(&mut self, ctx: &egui::Context) {
+        /// Fortnite finishes the replay when the player is back in the lobby.
+        const FILE_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+        while let Ok(played) = self.game_log.try_recv() {
+            if !played.missed_replay() {
+                // A recorded Battle Royale match: its replay should show up in the folder.
+                if played.recorded && played.records_replays() && played.long_enough() {
+                    self.warned_unrecorded = false;
+                    if let Some(started) = played.started {
+                        self.replay_checks.push((std::time::Instant::now() + FILE_WAIT, started.into()));
+                        ctx.request_repaint_after(FILE_WAIT);
+                    }
+                }
+                continue;
+            }
+            self.activity.push_log("Fortnite did not record the last match, so its chests cannot be counted".into());
+            if self.settings.warn_unrecorded && !self.warned_unrecorded {
+                self.warned_unrecorded = true;
+                platform::notify(
+                    "Your last match was not recorded",
+                    "Fortnite saved no replay, so its chests can't be counted. In Fortnite turn on \
+                     Settings > Game > Replays > Record Replays.",
+                );
+            }
+        }
+
+        let now = std::time::Instant::now();
+        let (due, waiting): (Vec<_>, Vec<_>) = self.replay_checks.drain(..).partition(|(at, _)| *at <= now);
+        self.replay_checks = waiting;
+        for (_, started) in due {
+            let since = started - std::time::Duration::from_secs(60);
+            if crate::gamelog::replay_written_since(&self.settings.replay_dir, since) {
+                self.warned_no_file = false;
+                continue;
+            }
+            let dir = self.settings.replay_dir.display().to_string();
+            self.activity.push_log(format!("Fortnite recorded the last match, but its replay is not in {dir}"));
+            if self.settings.warn_unrecorded && !self.warned_no_file {
+                self.warned_no_file = true;
+                platform::notify(
+                    "Replay not found",
+                    &format!("Fortnite recorded your last match, but it isn't in {dir}. Check the replay folder in Settings > Replays."),
+                );
+            }
+        }
+    }
+
     /// Runs the online mode, and puts squadmates' counts into the matches or takes them out
     /// when it is switched off.
     fn process_online(&mut self, ctx: &egui::Context) {
@@ -628,9 +693,11 @@ impl eframe::App for ChestApp {
         self.process_tray(ctx);
         self.process_updates(ctx);
         self.process_online(ctx);
+        self.process_game_log(ctx);
         self.handle_close(ctx);
         self.handle_dropped_files(ctx);
         crate::overlay::update(self, ctx);
+        crate::stream::update(self);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {

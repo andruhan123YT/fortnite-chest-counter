@@ -178,6 +178,29 @@ struct Interaction {
 }
 
 /// Shows or hides the overlay. Called every frame.
+/// What the in-game overlay and the stream overlay show.
+pub struct Numbers {
+    pub total: u64,
+    pub last_match: u64,
+    pub today: u64,
+    pub squad: u64,
+    pub treasures: u64,
+    pub in_match: bool,
+}
+
+pub fn numbers(app: &ChestApp) -> Numbers {
+    let t = &app.totals;
+    let today = chrono::Local::now().date_naive();
+    Numbers {
+        total: t.mine(),
+        last_match: app.store.matches.first().map_or(0, |m| m.summary(&app.settings.nick).mine() as u64),
+        today: crate::stats::by_day(&app.store.matches, &app.settings).get(&today).copied().unwrap_or(0),
+        squad: t.teammates as u64,
+        treasures: t.treasures as u64,
+        in_match: app.activity.live_matches > 0,
+    }
+}
+
 pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
     // Never leave the overlay taking the mouse once the player is done with its settings.
     // Unlocked from its own icon, it stays so until the icon locks it.
@@ -218,18 +241,15 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
         None => corner_position(settings.corner, size, screen),
     };
 
-    let t = &app.totals;
-    let mine = theme::thousands(t.mine());
-    let nick = &app.settings.nick;
-    let today = chrono::Local::now().date_naive();
-    let today_count = crate::stats::by_day(&app.store.matches, &app.settings).get(&today).copied().unwrap_or(0);
-    let last = app.store.matches.first().map_or(0, |m| m.summary(nick).mine()).to_string();
+    let n = numbers(app);
+    let mine = theme::thousands(n.total);
+    let last = n.last_match.to_string();
     let stats = [
-        ("TODAY", theme::thousands(today_count), theme::TEXT),
-        ("SQUAD", theme::thousands(t.teammates as u64), theme::SQUAD),
-        ("TREASURES", t.treasures.to_string(), theme::TREASURE),
+        ("TODAY", theme::thousands(n.today), theme::TEXT),
+        ("SQUAD", theme::thousands(n.squad), theme::SQUAD),
+        ("TREASURES", n.treasures.to_string(), theme::TREASURE),
     ];
-    let live = app.activity.live_matches > 0;
+    let live = n.in_match;
 
     let builder = ViewportBuilder::default()
         .with_title(OVERLAY_TITLE)
