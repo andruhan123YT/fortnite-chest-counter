@@ -57,6 +57,22 @@ mod imp {
         already_running
     }
 
+    /// Whether an instance of the app runs, without claiming the spot or waking it.
+    pub fn instance_running() -> bool {
+        use windows_sys::Win32::Foundation::CloseHandle;
+        let mutex_name = wide(INSTANCE_MUTEX);
+        // SAFETY: as in `activate_existing_instance`; the handle is closed right away, so
+        // a mutex created here disappears again.
+        unsafe {
+            let handle = CreateMutexW(std::ptr::null(), 0, mutex_name.as_ptr());
+            let taken = GetLastError() == ERROR_ALREADY_EXISTS;
+            if !handle.is_null() {
+                CloseHandle(handle);
+            }
+            taken
+        }
+    }
+
     /// Becomes the single instance once the running one has quit, waiting up to `max`.
     pub fn claim_instance_waiting(max: std::time::Duration) -> bool {
         use windows_sys::Win32::Foundation::CloseHandle;
@@ -131,12 +147,15 @@ mod imp {
 
     const RUN_KEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 
-    pub fn set_autostart(enabled: bool) -> std::io::Result<()> {
+    /// Starts the app at sign-in, in the tray, or with `wait_for_fortnite` idle until the
+    /// game runs (see `WAIT_FOR_FORTNITE_ARG`).
+    pub fn set_autostart(enabled: bool, wait_for_fortnite: bool) -> std::io::Result<()> {
         use winreg::enums::{HKEY_CURRENT_USER, KEY_SET_VALUE};
         let key = winreg::RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(RUN_KEY, KEY_SET_VALUE)?;
         if enabled {
             let exe = std::env::current_exe()?;
-            key.set_value(APP_NAME, &format!("\"{}\" --minimized", exe.display()))
+            let arg = if wait_for_fortnite { super::WAIT_FOR_FORTNITE_ARG } else { "--minimized" };
+            key.set_value(APP_NAME, &format!("\"{}\" {arg}", exe.display()))
         } else {
             match key.delete_value(APP_NAME) {
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -296,6 +315,9 @@ mod imp {
     pub fn activate_existing_instance() -> bool {
         false
     }
+    pub fn instance_running() -> bool {
+        false
+    }
     pub fn claim_instance_waiting(_max: std::time::Duration) -> bool {
         true
     }
@@ -304,7 +326,7 @@ mod imp {
     }
     #[allow(dead_code)]
     pub fn show_main_window() {}
-    pub fn set_autostart(_enabled: bool) -> std::io::Result<()> {
+    pub fn set_autostart(_enabled: bool, _wait_for_fortnite: bool) -> std::io::Result<()> {
         Ok(())
     }
     pub fn register_notifications(_icon: &std::path::Path) -> std::io::Result<()> {
@@ -334,6 +356,9 @@ mod imp {
 }
 
 pub use imp::*;
+
+/// Autostart argument: wait for Fortnite before opening.
+pub const WAIT_FOR_FORTNITE_ARG: &str = "--wait-for-fortnite";
 
 /// The Explorer argument that selects `path`, quoted so spaces survive.
 #[cfg_attr(not(windows), allow(dead_code))]

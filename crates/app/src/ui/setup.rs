@@ -77,6 +77,8 @@ fn next(app: &mut ChestApp, last: bool) {
         return;
     }
     settings.setup_done = true;
+    // A new install has nothing to catch up on.
+    settings.notes_seen = crate::update::version_text(crate::update::current());
     app.settings = settings;
     app.settings_ui = SettingsUi::from_settings(&app.settings);
     app.apply_settings(true);
@@ -139,7 +141,7 @@ fn background_step(app: &mut ChestApp, ui: &mut egui::Ui) {
     });
     ui.add_space(6.0);
     ui.checkbox(&mut app.settings.watch, "Count new matches automatically");
-    ui.checkbox(&mut app.settings.start_with_windows, "Start with Windows");
+    ui.checkbox(&mut app.settings.start_with_windows, "Start by itself when Fortnite starts");
     ui.checkbox(&mut app.settings.notifications, "Notify me after each match");
     ui.checkbox(&mut app.settings.online, "Swap exact chest counts with squadmates who run the app (online)");
     ui.label(theme::caption(

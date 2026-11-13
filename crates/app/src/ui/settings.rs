@@ -268,14 +268,21 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
             ui.label(theme::caption(
                 "Set Fortnite to Windowed Fullscreen (Settings > Video > Window Mode): Windows cannot draw over exclusive fullscreen. \
                  The overlay ignores the mouse, so clicks go to the game; it only takes the mouse while you move it. \
-                 The lock in its top right corner unlocks it for moving too, and locks it again.",
+                 The lock in its top right corner unlocks it for moving too, and locks it again; \
+                 while it is unlocked, the cross next to it hides the overlay.",
             ));
         });
 
         section(ui, "Stream overlay (OBS)", |ui| stream(app, ui));
 
         section(ui, "Windows", |ui| {
-            ui.checkbox(&mut app.settings.start_with_windows, "Start with Windows (in the tray)");
+            ui.checkbox(&mut app.settings.start_with_windows, "Start by itself, in the tray");
+            ui.add_enabled_ui(app.settings.start_with_windows, |ui| {
+                ui.indent("autostart", |ui| {
+                    ui.radio_value(&mut app.settings.start_with_fortnite, true, "When Fortnite starts");
+                    ui.radio_value(&mut app.settings.start_with_fortnite, false, "When Windows starts");
+                });
+            });
             ui.checkbox(&mut app.settings.close_to_tray, "Closing the window keeps the app running in the tray");
             ui.checkbox(&mut app.settings.notifications, "Show a notification after each match");
         });
@@ -443,6 +450,12 @@ fn online(app: &mut ChestApp, ui: &mut egui::Ui) {
         )));
     }
     ui.add_space(4.0);
+    if ui.checkbox(&mut app.settings.leaderboard_name, "Show my name in the leaderboard").changed() {
+        let _ = app.settings.save();
+        app.online.nudge();
+    }
+    ui.label(theme::caption("Off: the leaderboard shows Anonymous instead of your name; your numbers stay in it."));
+    ui.add_space(4.0);
     if ui
         .checkbox(&mut app.settings.online_lines_all, "Running total: a line for every squadmate who runs the app")
         .changed()
@@ -485,6 +498,9 @@ fn updates(app: &mut ChestApp, ui: &mut egui::Ui) {
             app.update.checking = true;
         }
         let current = version_text(crate::update::current());
+        if ui.button("What's new").clicked() {
+            app.whats_new = crate::changelog::recent();
+        }
         if app.update.checking {
             ui.label(theme::caption("Checking..."));
         } else if let Some(p) = app.update.installing {

@@ -4,6 +4,7 @@
 
 mod app;
 mod archive;
+mod changelog;
 mod cli;
 mod config;
 mod gamelog;
@@ -32,6 +33,10 @@ fn main() -> ExitCode {
     if let Some(code) = cli::run(&args) {
         return code;
     }
+    let waited = args.iter().any(|a| a == platform::WAIT_FOR_FORTNITE_ARG);
+    if waited && !wait_for_fortnite() {
+        return ExitCode::SUCCESS;
+    }
     if args.iter().any(|a| a == update::AFTER_UPDATE_ARG) {
         // Started by the version this one replaced, which is closing: wait for it.
         if !platform::claim_instance_waiting(std::time::Duration::from_secs(30)) {
@@ -44,9 +49,24 @@ fn main() -> ExitCode {
     }
     std::thread::spawn(update::remove_leftover);
     config::log_event(&format!("start v{} {}", env!("CARGO_PKG_VERSION"), args.join(" ")));
-    let code = app::run(args.iter().any(|a| a == "--minimized"));
+    let code = app::run(waited || args.iter().any(|a| a == "--minimized"));
     config::log_event("event loop ended");
     code
+}
+
+/// Started at sign-in with `--wait-for-fortnite`: idles until the game runs, checking
+/// every few seconds, then the app opens in the tray. Gives up if the app was started some
+/// other way meanwhile.
+fn wait_for_fortnite() -> bool {
+    loop {
+        if platform::instance_running() {
+            return false;
+        }
+        if platform::fortnite_running() {
+            return true;
+        }
+        std::thread::sleep(std::time::Duration::from_secs(5));
+    }
 }
 
 /// The GUI build has no console, so a panic would vanish without a trace. Append it to
@@ -57,6 +77,9 @@ fn log_panics() {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         use std::io::Write;
+        if overlay::skipped_frame_panic() {
+            return;
+        }
         let dir = config::data_dir();
         let _ = std::fs::create_dir_all(&dir);
         let path = dir.join("crash.log");

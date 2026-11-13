@@ -100,7 +100,10 @@ pub struct Settings {
     /// Warn when Fortnite's log shows a match played without a replay.
     pub warn_unrecorded: bool,
     pub notifications: bool,
+    /// Start by itself, in the tray, when the user signs in to Windows.
     pub start_with_windows: bool,
+    /// With `start_with_windows`: sit idle after sign-in and open only once Fortnite runs.
+    pub start_with_fortnite: bool,
     pub close_to_tray: bool,
     pub archive: ArchiveSettings,
     pub overlay: OverlaySettings,
@@ -119,10 +122,14 @@ pub struct Settings {
     /// only for the names in `online_lines`.
     pub online_lines_all: bool,
     pub online_lines: Vec<String>,
+    /// The leaderboard shows the player's name; off, it shows "Anonymous".
+    pub leaderboard_name: bool,
     /// Random id of this installation, sent with uploads.
     pub install_id: String,
     /// The overlay page for OBS.
     pub stream: crate::stream::StreamSettings,
+    /// The version whose "What's new" notes the player last closed.
+    pub notes_seen: String,
 }
 
 impl Default for Settings {
@@ -138,6 +145,7 @@ impl Default for Settings {
             warn_unrecorded: true,
             notifications: true,
             start_with_windows: true,
+            start_with_fortnite: true,
             close_to_tray: true,
             archive: ArchiveSettings::default(),
             overlay: OverlaySettings::default(),
@@ -149,8 +157,10 @@ impl Default for Settings {
             online: true,
             online_lines_all: true,
             online_lines: Vec::new(),
+            leaderboard_name: true,
             install_id: String::new(),
             stream: Default::default(),
+            notes_seen: String::new(),
         }
     }
 }

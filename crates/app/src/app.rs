@@ -20,11 +20,13 @@ pub enum Page {
     Stats,
     Map,
     Squad,
+    Leaderboard,
     Settings,
 }
 
 impl Page {
-    const ALL: [Page; 6] = [Page::Overview, Page::Matches, Page::Stats, Page::Map, Page::Squad, Page::Settings];
+    const ALL: [Page; 7] =
+        [Page::Overview, Page::Matches, Page::Stats, Page::Map, Page::Squad, Page::Leaderboard, Page::Settings];
 
     fn label(self) -> &'static str {
         match self {
@@ -33,6 +35,7 @@ impl Page {
             Page::Stats => "Stats & odds",
             Page::Map => "Map",
             Page::Squad => "Squad replays",
+            Page::Leaderboard => "Leaderboard",
             Page::Settings => "Settings",
         }
     }
@@ -45,6 +48,7 @@ impl Page {
             Page::Stats => icon::CHART,
             Page::Map => icon::MAP_PIN,
             Page::Squad => icon::PEOPLE,
+            Page::Leaderboard => icon::STAR,
             Page::Settings => icon::SETTINGS,
         }
     }
@@ -83,6 +87,9 @@ pub struct ChestApp {
     pub totals: stats::Totals,
     pub setup: crate::ui::setup::SetupState,
     pub settings_ui: crate::ui::settings::SettingsUi,
+    /// Notes shown in the "What's new" dialog until it is closed.
+    pub whats_new: Vec<crate::changelog::Entry>,
+    pub leaderboard: crate::ui::leaderboard::LeaderboardUi,
     pub map_ui: crate::ui::map::MapUi,
     pub quest_import: crate::ui::quest_start::QuestImport,
     pub overlay: crate::overlay::OverlayState,
@@ -164,7 +171,7 @@ impl ChestApp {
         }
         if settings.setup_done && settings.start_with_windows {
             // Point autostart at this executable in case it was moved since setup.
-            let _ = platform::set_autostart(true);
+            let _ = platform::set_autostart(true, settings.start_with_fortnite);
         }
         let store = Store::load(Store::default_path());
         let (tx, events) = mpsc::channel();
@@ -192,6 +199,7 @@ impl ChestApp {
             ctx.send_viewport_cmd(ViewportCommand::Visible(true));
         }
 
+        let whats_new = if settings.setup_done { crate::changelog::unseen(&settings.notes_seen) } else { Vec::new() };
         let setup = crate::ui::setup::SetupState::from_settings(&settings);
         let settings_ui = crate::ui::settings::SettingsUi::from_settings(&settings);
         let hide_frames = if start_minimized && tray.is_some() { 5 } else { 0 };
@@ -208,6 +216,8 @@ impl ChestApp {
             totals: stats::Totals::default(),
             setup,
             settings_ui,
+            whats_new,
+            leaderboard: Default::default(),
             map_ui: Default::default(),
             quest_import: Default::default(),
             overlay: Default::default(),
@@ -262,7 +272,7 @@ impl ChestApp {
         if let Err(e) = self.settings.save() {
             self.activity.push_log(format!("Could not save settings: {e}"));
         }
-        if let Err(e) = platform::set_autostart(self.settings.start_with_windows) {
+        if let Err(e) = platform::set_autostart(self.settings.start_with_windows, self.settings.start_with_fortnite) {
             self.activity.push_log(format!("Could not update autostart: {e}"));
         }
         self.worker.send(Command::Settings(Box::new(self.settings.clone())));
@@ -517,7 +527,13 @@ impl ChestApp {
     /// when it is switched off.
     fn process_online(&mut self, ctx: &egui::Context) {
         let enabled = self.settings.online && self.settings.setup_done;
-        let changed = self.online.tick(enabled, &self.store.matches, &self.settings.install_id);
+        let changed = self.online.tick(
+            enabled,
+            &self.store.matches,
+            &self.settings.install_id,
+            self.totals.mine(),
+            !self.settings.leaderboard_name,
+        );
         if changed || enabled != self.online_shown {
             self.online_shown = enabled;
             self.store.set_online(if enabled { self.online.found() } else { Vec::new() });
@@ -714,8 +730,17 @@ impl eframe::App for ChestApp {
                 Page::Stats => crate::ui::stats::show(self, ui),
                 Page::Map => crate::ui::map::show(self, ui),
                 Page::Squad => crate::ui::squad::show(self, ui),
+                Page::Leaderboard => crate::ui::leaderboard::show(self, ui),
                 Page::Settings => crate::ui::settings::show(self, ui),
             });
+        if !self.whats_new.is_empty() && crate::changelog::show(ui.ctx(), &self.whats_new) {
+            self.whats_new.clear();
+            let current = crate::update::version_text(crate::update::current());
+            if self.settings.notes_seen != current {
+                self.settings.notes_seen = current;
+                let _ = self.settings.save();
+            }
+        }
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {

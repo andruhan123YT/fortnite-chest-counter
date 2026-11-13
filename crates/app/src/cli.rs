@@ -12,6 +12,7 @@ const HELP: &str = "\
 Usage:
   fortnite-chest-counter                     Start the app
   fortnite-chest-counter --minimized         Start in the system tray
+  fortnite-chest-counter --wait-for-fortnite Start in the tray once Fortnite runs
   fortnite-chest-counter analyze <replays or folders>... [--nick NAME] [--json]
   fortnite-chest-counter info <file.replay>
   fortnite-chest-counter dump-events <file.replay>

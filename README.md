@@ -34,14 +34,18 @@ what gets sent.
 - **A map** of where you looted, on the island with its location names.
 - **A running total chart**, with a line for every squadmate who runs the app.
 - **An in-game overlay** with your count. Click the lock in its corner to move and
-  resize it; locked, clicks go straight through to the game.
+  resize it, or hit the cross next to it to hide it; locked, clicks go straight through
+  to the game.
 - **A stream overlay for OBS**: your count as a Browser source with a transparent
   background, updating on its own after every match.
-- **Runs in the tray** and counts each match when you're back in the lobby, with a
-  notification.
+- **Starts when Fortnite does** (or with Windows, if you prefer), runs in the tray and
+  counts each match when you're back in the lobby, with a notification.
 - **Tells you when a match wasn't recorded.** It follows Fortnite's own log, so if replays
   are off (or land in another folder) you hear about it after one match, not at the end
   of the season.
+- **Leaderboard** of everyone who runs the app with Online mode: chests (opened and
+  broken), the best match and matches recorded, for all time, this week or today. Sort by
+  any column. Settings > Online shows you as Anonymous instead.
 - **Keeps copies of your replays**, because Fortnite deletes everything past the last 100.
 - **Updates itself** from this repository's releases.
 
@@ -60,7 +64,9 @@ Windows 10 or 11, 64-bit.
 **Updates.** The app looks for a new release here every 10 minutes (or when you press
 Settings > Updates > Check for updates). When there is one, an **Update to vX** button
 shows up in the sidebar: it downloads the new exe, checks it against the release's
-SHA-256 file and restarts into it. Your matches and settings stay as they are.
+SHA-256 file and restarts into it. Your matches and settings stay as they are. The first
+time you open the window after an update, a short "What's new" list from
+[CHANGELOG.md](CHANGELOG.md) shows what changed; Settings > Updates > What's new shows it again.
 
 Each release has three files:
 
@@ -95,10 +101,20 @@ window from the tray icon for:
   the rest of that match's chests. Map > Change picture swaps in your own picture of the
   island.
 - **Squad replays**: add replays your teammates recorded to fill in what yours missed.
-- **Settings**: replay folder, autostart, replay archiving, and an in-game overlay that
+- **Leaderboard**: players with Online mode by chests (opened and broken), best match and
+  matches recorded; all time, this week (from Sunday) or today (days start at 00:00 UTC,
+  as Fortnite's). Click a column to sort; your own row is gold.
+- **Settings**: replay folder, autostart (when Fortnite starts, or when Windows does),
+  replay archiving, and an in-game overlay that
   shows your count on top of the game (off by default; mouse clicks pass through it).
   Put it in a corner, or click the lock in its top right corner to drag it anywhere and
-  size it, then click the lock again.
+  size it, then click the lock again. While it is unlocked, the cross next to the lock
+  hides the overlay; Settings or the tray menu brings it back.
+
+**Starting with Fortnite.** By default the app starts by itself when Fortnite does. At
+sign-in Windows starts it with `--wait-for-fortnite`: it opens no window and no tray icon,
+takes about 10 MB, and checks every 5 seconds whether Fortnite runs. Once it does, the
+app opens in the tray. Settings > Windows switches this to starting with Windows, or off.
 
 **Stream overlay.** Settings > Stream overlay (OBS) serves your count as a small web page
 at `http://127.0.0.1:47321/` (off by default; the port can be changed). In OBS add
@@ -178,10 +194,14 @@ password, the sign-in code or the session. It only reads the file you give it, o
   Updates turns it off). Nothing about you goes with that.
 - Online mode (on by default; Settings > Online turns it off) sends `chests.l4ve.dev` your
   Epic account id and name, and for each of your matches its id, start time and the chests
-  you opened and broke, plus a random id of this installation. To get a squadmate's
-  numbers the app needs the match id and their account id, both from your own replay of
-  that match, so your numbers go only to people who played in your squad. Nothing else:
-  no replays, no other players' names, no analytics.
+  you opened and broke, the total the app shows (for the server's own stats; nobody else
+  gets it), whether to show your name in the leaderboard, plus a random id of this
+  installation. To get a squadmate's per-match numbers the app needs the match id and
+  their account id, both from your own replay of that match, so those go only to people
+  who played in your squad. The leaderboard shows everyone with Online mode your name (or
+  Anonymous, if you turn it off in Settings > Online), your number of matches, your chests
+  and your best match; never account ids or match ids. Nothing else: no replays, no other
+  players' names, no analytics.
 - No accounts. (The optional Epic profile script talks to Epic, and only when you run it.)
 
 ## Known limitations
@@ -260,7 +280,8 @@ python tools/package.py
 
 It lands in `dist\`, next to `fortnite-chest-counter.exe.sha256`.
 
-To release an update: set the new `version` in the root `Cargo.toml`, commit, then push a
+To release an update: add a section for it to `CHANGELOG.md` (a test fails without one),
+set the new `version` in the root `Cargo.toml`, commit, then push a
 tag with the same version (`git tag v1.0.1 && git push origin v1.0.1`). GitHub Actions
 runs the tests, builds the exe, its `.sha256` and the zip and publishes them as a release
 (`.github/workflows/release.yml`). Installed apps offer the update within 10 minutes. They

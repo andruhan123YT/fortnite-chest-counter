@@ -45,6 +45,8 @@ pub mod icon {
     pub const DOWNLOAD: char = '\u{E896}';
     pub const LOCK: char = '\u{E72E}';
     pub const UNLOCK: char = '\u{E785}';
+    pub const CLOSE: char = '\u{E711}';
+    pub const STAR: char = '\u{E734}';
 }
 
 /// An icon at `size`, or `fallback` text when Windows has no icon font.

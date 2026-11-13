@@ -4,6 +4,8 @@
 //! Only while the player moves or resizes it (Settings > Overlay) does it take the mouse.
 //! Windows can only draw it over Fortnite in windowed or borderless fullscreen.
 
+use std::cell::Cell;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use eframe::egui::{self, RichText, Sense, Stroke, StrokeKind, ViewportBuilder, ViewportCommand, ViewportId};
@@ -66,6 +68,47 @@ const LOCK_REVEAL_AFTER: Duration = Duration::from_millis(300);
 /// Where the lock window waits while the overlay is unlocked: beyond any screen. It is
 /// kept rather than closed, as a new window flashes white when it opens.
 const LOCK_PARKED: egui::Pos2 = egui::pos2(-20000.0, -20000.0);
+
+thread_local! {
+    /// Set while egui has not yet called back into an overlay window's frame.
+    static AWAITING_FRAME: Cell<bool> = const { Cell::new(false) };
+}
+static SKIP_LOGGED: AtomicBool = AtomicBool::new(false);
+
+/// A panic in flight is egui's complaint about a skipped overlay frame, not a crash.
+pub fn skipped_frame_panic() -> bool {
+    AWAITING_FRAME.with(Cell::get)
+}
+
+/// Shows an overlay window. eframe skips the frame when it cannot create or reach the
+/// window, which happens now and then in game, and egui then panics, taking the whole app
+/// down. Such a frame shows nothing and returns the default; the next one tries again.
+/// Any panic from the frame itself still goes through.
+fn show_window<T: Default>(
+    ctx: &egui::Context,
+    id: ViewportId,
+    builder: ViewportBuilder,
+    mut frame: impl FnMut(&mut egui::Ui) -> T,
+) -> T {
+    AWAITING_FRAME.with(|a| a.set(true));
+    let shown = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        ctx.show_viewport_immediate(id, builder, |ui, _class| {
+            AWAITING_FRAME.with(|a| a.set(false));
+            frame(ui)
+        })
+    }));
+    let skipped = AWAITING_FRAME.with(|a| a.replace(false));
+    match shown {
+        Ok(out) => out,
+        Err(_) if skipped => {
+            if !SKIP_LOGGED.swap(true, Ordering::Relaxed) {
+                crate::config::log_event("overlay window unavailable, skipped a frame");
+            }
+            T::default()
+        }
+        Err(panic) => std::panic::resume_unwind(panic),
+    }
+}
 
 pub fn start_editing(app: &mut ChestApp) {
     app.overlay.editing = true;
@@ -170,6 +213,7 @@ fn fit(text: egui::Vec2, margin: f32, scale: f32) -> egui::Vec2 {
 #[derive(Default)]
 struct Interaction {
     lock: bool,
+    close: bool,
     at: Option<egui::Pos2>,
     content: Option<egui::Vec2>,
     resize_grabbed: Option<(egui::Pos2, Axis)>,
@@ -264,7 +308,7 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
     // While being moved the overlay looks exactly as it will in game, so it is sized
     // by what it really shows.
     let margin = 10.0 * scale;
-    let done = ctx.show_viewport_immediate(ViewportId::from_hash_of("overlay"), builder, |ui, _class| {
+    let done = show_window(ctx, ViewportId::from_hash_of("overlay"), builder, |ui| {
         let mut done = Interaction::default();
         let whole = ui.ctx().viewport_rect();
         if editing {
@@ -400,6 +444,19 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
         if ui.put(lock_at, icon).on_hover_text("Lock it in place").clicked() {
             done.lock = true;
         }
+        // While unlocked, a cross next to the lock hides the overlay.
+        if editing {
+            let close_at = lock_at.translate(egui::vec2(-(LOCK_SIDE + 2.0), 0.0));
+            let cross =
+                egui::Button::new(theme::icon_text(theme::icon::CLOSE, "X", 12.0).color(theme::GOLD)).frame(false);
+            if ui
+                .put(close_at, cross)
+                .on_hover_text("Hide the overlay (Settings > Overlay or the tray menu brings it back)")
+                .clicked()
+            {
+                done.close = true;
+            }
+        }
         done
     });
 
@@ -422,7 +479,11 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
     if done.resize_released || !editing {
         app.overlay.resize_from = None;
     }
-    if done.lock {
+    if done.close {
+        app.settings.overlay.enabled = false;
+        lock(app);
+        app.activity.push_log("Overlay hidden. Settings > Overlay or the tray menu shows it again".into());
+    } else if done.lock {
         toggle_from_icon(app);
     }
 
@@ -449,7 +510,7 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
         .with_visible(lock_window.is_some())
         .with_inner_size(egui::Vec2::splat(LOCK_SIDE))
         .with_position(if parked { LOCK_PARKED } else { pos + lock_offset(size) });
-    let unlock = ctx.show_viewport_immediate(ViewportId::from_hash_of("overlay_lock"), lock_builder, |ui, _class| {
+    let unlock = show_window(ctx, ViewportId::from_hash_of("overlay_lock"), lock_builder, |ui| {
         let mut clicked = false;
         egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::BG)).show(ui, |ui| {
             let icon =
@@ -489,6 +550,33 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_window_eframe_cannot_draw_skips_the_frame_instead_of_crashing() {
+        let ctx = egui::Context::default();
+        ctx.set_embed_viewports(false);
+        // What eframe does when it cannot create or reach the window: return without
+        // drawing it.
+        egui::Context::set_immediate_viewport_renderer(|_, _| {});
+        let mut drawn = false;
+        let clicked = show_window(&ctx, ViewportId::from_hash_of("test"), ViewportBuilder::default(), |_| {
+            drawn = true;
+            true
+        });
+        assert!(!drawn);
+        assert!(!clicked);
+        assert!(!skipped_frame_panic());
+
+        // Embedded, the frame is drawn and its result comes back.
+        ctx.set_embed_viewports(true);
+        let mut out = false;
+        ctx.run_ui(egui::RawInput::default(), |ui| {
+            out = show_window(ui.ctx(), ViewportId::from_hash_of("test"), ViewportBuilder::default(), |_| true);
+        })
+        .textures_delta
+        .clear();
+        assert!(out);
+    }
 
     #[test]
     fn resize_follows_how_far_the_handle_moved() {

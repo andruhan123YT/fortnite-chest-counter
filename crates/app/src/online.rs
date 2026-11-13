@@ -63,6 +63,16 @@ struct Upload {
     matches: Vec<UploadMatch>,
 }
 
+/// The count the app shows, so the server's admin page shows the same number.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+struct TotalUpload {
+    player: String,
+    install: String,
+    total: u64,
+    /// Hide the player's name in the leaderboard.
+    anonymous: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize)]
 struct LookupMatch {
     #[serde(rename = "match")]
@@ -89,6 +99,10 @@ struct Saved {
     found: Vec<Found>,
     /// Unix seconds each match was last asked about.
     asked: HashMap<String, i64>,
+    /// The total the server has from this app.
+    total_sent: Option<u64>,
+    /// The leaderboard setting the server has from this app.
+    anonymous_sent: Option<bool>,
 }
 
 /// One round of work for the network thread.
@@ -96,11 +110,12 @@ struct Saved {
 struct Job {
     uploads: Vec<Upload>,
     lookup: Vec<LookupMatch>,
+    total: Option<TotalUpload>,
 }
 
 impl Job {
     fn is_empty(&self) -> bool {
-        self.uploads.is_empty() && self.lookup.is_empty()
+        self.uploads.is_empty() && self.lookup.is_empty() && self.total.is_none()
     }
 }
 
@@ -109,6 +124,7 @@ struct Outcome {
     uploaded: Vec<(String, (u32, u32))>,
     asked: Vec<String>,
     found: Vec<Found>,
+    total_sent: Option<(u64, bool)>,
     error: Option<String>,
 }
 
@@ -140,7 +156,7 @@ fn ask_every(age_secs: i64) -> i64 {
 }
 
 /// What to send and ask this round, newest matches first.
-fn plan(matches: &[MatchRecord], saved: &Saved, install: &str, now: i64) -> Job {
+fn plan(matches: &[MatchRecord], saved: &Saved, install: &str, total: u64, anonymous: bool, now: i64) -> Job {
     let mut uploads: BTreeMap<(String, String), Vec<UploadMatch>> = BTreeMap::new();
     let mut lookup = Vec::new();
     let mut newest_first: Vec<&MatchRecord> = matches.iter().collect();
@@ -199,7 +215,24 @@ fn plan(matches: &[MatchRecord], saved: &Saved, install: &str, now: i64) -> Job 
                 .collect::<Vec<_>>()
         })
         .collect();
-    Job { uploads, lookup }
+    let changed = saved.total_sent != Some(total) || saved.anonymous_sent != Some(anonymous);
+    let total = my_player_id(matches).filter(|_| changed).map(|player| TotalUpload {
+        player,
+        install: install.to_owned(),
+        total,
+        anonymous,
+    });
+    Job { uploads, lookup, total }
+}
+
+/// The player's Epic id, from the newest match that names it; totals and the leaderboard
+/// go under it.
+pub fn my_player_id(matches: &[MatchRecord]) -> Option<String> {
+    matches
+        .iter()
+        .filter_map(|m| Some((m.started_at, m.recorder()?.epic_id.as_deref().filter(|id| is_id(id))?)))
+        .max_by_key(|(at, _)| *at)
+        .map(|(_, id)| id.to_owned())
 }
 
 fn server() -> String {
@@ -236,6 +269,13 @@ fn work(agent: &ureq::Agent, job: Job) -> Outcome {
         }
         out.uploaded.extend(upload.matches.iter().map(|m| (m.match_id.clone(), (m.opened, m.broken))));
     }
+    if let Some(total) = &job.total {
+        if let Err(e) = post(agent, "/v1/total", total) {
+            out.error = Some(e);
+            return out;
+        }
+        out.total_sent = Some((total.total, total.anonymous));
+    }
     if job.lookup.is_empty() {
         return out;
     }
@@ -249,6 +289,41 @@ fn work(agent: &ureq::Agent, job: Job) -> Outcome {
         Err(e) => out.error = Some(e),
     }
     out
+}
+
+/// One player in the leaderboard.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct LeaderEntry {
+    pub name: String,
+    pub matches: u32,
+    /// Opened and broken.
+    pub chests: u64,
+    /// The most chests in one match.
+    pub best: u32,
+    /// The player running this app.
+    pub me: bool,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct Leaderboard {
+    /// Unix seconds this week and today began, by the server's clock (00:00 UTC).
+    pub week_start: i64,
+    pub day_start: i64,
+    pub all: Vec<LeaderEntry>,
+    pub week: Vec<LeaderEntry>,
+    pub today: Vec<LeaderEntry>,
+}
+
+#[derive(Serialize)]
+struct LeaderboardAsk<'a> {
+    me: &'a str,
+}
+
+/// Asks the server for the leaderboard; blocks, so call it off the UI thread. `me` marks
+/// the player's own row.
+pub fn fetch_leaderboard(me: Option<&str>) -> Result<Leaderboard, String> {
+    let text = post(&agent(), "/v1/leaderboard", &LeaderboardAsk { me: me.unwrap_or("") })?;
+    serde_json::from_str(&text).map_err(|e| e.to_string())
 }
 
 #[derive(Debug, Clone, Default)]
@@ -312,7 +387,7 @@ impl Sync {
 
     /// Called every frame: takes back what the network thread did and hands it the next
     /// round when one is due. True when squadmates' counts changed.
-    pub fn tick(&mut self, enabled: bool, matches: &[MatchRecord], install: &str) -> bool {
+    pub fn tick(&mut self, enabled: bool, matches: &[MatchRecord], install: &str, total: u64, anonymous: bool) -> bool {
         let mut changed = false;
         while let Ok(out) = self.outcomes.try_recv() {
             self.busy = false;
@@ -321,7 +396,7 @@ impl Sync {
         if enabled && !self.busy && Instant::now() >= self.next {
             self.next = Instant::now() + TICK;
             let now = chrono::Utc::now().timestamp();
-            let job = plan(matches, &self.saved, install, now);
+            let job = plan(matches, &self.saved, install, total, anonymous, now);
             if !job.is_empty() && self.jobs.send(job).is_ok() {
                 self.busy = true;
             }
@@ -339,6 +414,10 @@ impl Sync {
             }
         }
         self.saved.uploaded.extend(out.uploaded);
+        if let Some((total, anonymous)) = out.total_sent {
+            self.saved.total_sent = Some(total);
+            self.saved.anonymous_sent = Some(anonymous);
+        }
         for id in out.asked {
             self.saved.asked.insert(id, now);
         }
@@ -385,6 +464,7 @@ mod tests {
 
     const ME: &str = "0123456789abcdef0123456789abcdef";
     const MATE: &str = "fedcba9876543210fedcba9876543210";
+    const TOTAL: u64 = 1005;
     const STRANGER: &str = "00112233445566778899aabbccddeeff";
 
     fn ev() -> chests::ChestEvent {
@@ -426,7 +506,7 @@ mod tests {
     #[test]
     fn sends_own_counts_and_asks_about_squadmates_only() {
         let m = record("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "2026-11-09 18:00");
-        let job = plan(&[m], &Saved::default(), "inst", at("2026-11-09 18:30"));
+        let job = plan(&[m], &Saved::default(), "inst", TOTAL, false, at("2026-11-09 18:30"));
         assert_eq!(job.uploads.len(), 1);
         assert_eq!((job.uploads[0].player.as_str(), job.uploads[0].name.as_str()), (ME, "Me"));
         assert_eq!(job.uploads[0].matches[0].opened, 5);
@@ -440,23 +520,46 @@ mod tests {
     fn does_not_repeat_itself() {
         let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let m = record(id, "2026-11-09 18:00");
-        let mut saved = Saved::default();
+        let mut saved = Saved { total_sent: Some(TOTAL), anonymous_sent: Some(false), ..Default::default() };
         saved.uploaded.insert(id.into(), (5, 0));
         saved.asked.insert(id.into(), at("2026-11-09 18:29"));
         // Uploaded with the same numbers and asked a minute ago: nothing to do yet.
-        assert!(plan(std::slice::from_ref(&m), &saved, "i", at("2026-11-09 18:30")).is_empty());
+        assert!(plan(std::slice::from_ref(&m), &saved, "i", TOTAL, false, at("2026-11-09 18:30")).is_empty());
         // Two minutes on, a fresh match is asked about again.
-        assert_eq!(plan(std::slice::from_ref(&m), &saved, "i", at("2026-11-09 18:31")).lookup.len(), 1);
+        assert_eq!(plan(std::slice::from_ref(&m), &saved, "i", TOTAL, false, at("2026-11-09 18:31")).lookup.len(), 1);
         // A day old, it waits half an hour between asks.
         saved.asked.insert(id.into(), at("2026-11-10 18:30"));
-        assert!(plan(std::slice::from_ref(&m), &saved, "i", at("2026-11-10 18:45")).lookup.is_empty());
-        assert_eq!(plan(std::slice::from_ref(&m), &saved, "i", at("2026-11-10 19:00")).lookup.len(), 1);
+        assert!(plan(std::slice::from_ref(&m), &saved, "i", TOTAL, false, at("2026-11-10 18:45")).lookup.is_empty());
+        assert_eq!(plan(std::slice::from_ref(&m), &saved, "i", TOTAL, false, at("2026-11-10 19:00")).lookup.len(), 1);
         // Once every squadmate is found, twice a day for three days, then never again.
         saved.found.push(Found { match_id: id.into(), player: MATE.into(), name: "Mate".into(), opened: 9, broken: 1 });
-        assert!(plan(std::slice::from_ref(&m), &saved, "i", at("2026-11-11 06:00")).is_empty());
-        assert_eq!(plan(std::slice::from_ref(&m), &saved, "i", at("2026-11-11 06:30")).lookup.len(), 1);
+        assert!(plan(std::slice::from_ref(&m), &saved, "i", TOTAL, false, at("2026-11-11 06:00")).is_empty());
+        assert_eq!(plan(std::slice::from_ref(&m), &saved, "i", TOTAL, false, at("2026-11-11 06:30")).lookup.len(), 1);
         saved.asked.insert(id.into(), at("2026-11-12 17:00"));
-        assert!(plan(&[m], &saved, "i", at("2026-11-13 06:00")).is_empty());
+        assert!(plan(&[m], &saved, "i", TOTAL, false, at("2026-11-13 06:00")).is_empty());
+    }
+
+    #[test]
+    fn the_total_goes_once_and_again_when_it_changes() {
+        let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let m = record(id, "2026-11-09 18:00");
+        let job = plan(std::slice::from_ref(&m), &Saved::default(), "i", 3631, false, at("2026-11-09 18:30"));
+        assert_eq!(
+            job.total,
+            Some(TotalUpload { player: ME.into(), install: "i".into(), total: 3631, anonymous: false })
+        );
+        let saved = Saved { total_sent: Some(3631), anonymous_sent: Some(false), ..Default::default() };
+        assert!(plan(std::slice::from_ref(&m), &saved, "i", 3631, false, at("2026-11-09 18:30")).total.is_none());
+        assert_eq!(
+            plan(std::slice::from_ref(&m), &saved, "i", 3632, false, at("2026-11-09 18:30")).total.unwrap().total,
+            3632
+        );
+        // Hiding the name in the leaderboard sends it again.
+        assert!(
+            plan(std::slice::from_ref(&m), &saved, "i", 3631, true, at("2026-11-09 18:30")).total.unwrap().anonymous
+        );
+        // Without a match that names the player there is nobody to send it for.
+        assert!(plan(&[], &Saved::default(), "i", 3631, false, at("2026-11-09 18:30")).total.is_none());
     }
 
     #[test]
@@ -470,7 +573,7 @@ mod tests {
         let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let mut saved = Saved::default();
         saved.uploaded.insert(id.into(), (4, 0));
-        let job = plan(&[record(id, "2026-11-09 18:00")], &saved, "i", at("2026-11-09 18:30"));
+        let job = plan(&[record(id, "2026-11-09 18:00")], &saved, "i", TOTAL, false, at("2026-11-09 18:30"));
         assert_eq!(job.uploads[0].matches[0].opened, 5);
     }
 
