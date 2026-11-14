@@ -1,6 +1,9 @@
 //! Look and feel: a dark theme with treasure-gold accents.
 
+use chests::ChestKind;
 use eframe::egui::{self, Color32, CornerRadius, Margin, RichText, Stroke};
+
+use crate::i18n::tr;
 
 pub const BG: Color32 = Color32::from_rgb(18, 20, 26);
 pub const PANEL: Color32 = Color32::from_rgb(24, 27, 35);
@@ -16,9 +19,32 @@ pub const WARN: Color32 = Color32::from_rgb(240, 110, 90);
 pub const TREASURE: Color32 = Color32::from_rgb(196, 140, 255);
 
 /// Why teammates' numbers are a lower bound.
-pub const SQUAD_NEARBY_NOTE: &str =
-    "Teammates' chests are counted only while they were near you, or while you spectated \
-     them: a replay records nothing else. Chests they looted far away are missing, so the real squad total is higher.";
+pub fn squad_nearby_note() -> &'static str {
+    tr("Teammates' chests are counted only while they were near you, or while you spectated \
+        them: a replay records nothing else. Chests they looted far away are missing, so the real squad total is higher.")
+}
+
+/// The chest type as a table heading: "Rare".
+pub fn chest_kind(kind: ChestKind) -> &'static str {
+    match kind {
+        ChestKind::Normal => tr("Normal"),
+        ChestKind::Rare => tr("Rare"),
+        ChestKind::Buried => tr("Buried / sprite"),
+        ChestKind::LootCannon => tr("Loot cannon"),
+        ChestKind::Relic => tr("Relic"),
+    }
+}
+
+/// The chest type inside a sentence: "rare chest".
+pub fn chest_phrase(kind: ChestKind) -> &'static str {
+    match kind {
+        ChestKind::Normal => tr("normal chest"),
+        ChestKind::Rare => tr("rare chest"),
+        ChestKind::Buried => tr("buried / sprite chest"),
+        ChestKind::LootCannon => tr("loot cannon"),
+        ChestKind::Relic => tr("relic chest"),
+    }
+}
 
 /// A squad count, marked as a lower bound.
 pub fn squad_count(n: u64) -> String {
@@ -47,6 +73,7 @@ pub mod icon {
     pub const UNLOCK: char = '\u{E785}';
     pub const CLOSE: char = '\u{E711}';
     pub const STAR: char = '\u{E734}';
+    pub const ACCOUNT: char = '\u{E77B}';
 }
 
 /// An icon at `size`, or `fallback` text when Windows has no icon font.
@@ -213,6 +240,20 @@ pub fn thousands(n: u64) -> String {
         out.push(c);
     }
     out
+}
+
+/// A prize from the odds table, in the interface language.
+pub fn reward_name(name: &'static str) -> &'static str {
+    match name {
+        "Weekly Gold Outfit" => tr("Weekly Gold Outfit"),
+        "Pirate Shop Access" => tr("Pirate Shop Access"),
+        "Weekly Vehicle & Decal" => tr("Weekly Vehicle & Decal"),
+        "Weekly Pickaxe or Back Bling" => tr("Weekly Pickaxe or Back Bling"),
+        "Weekly Jam Track" => tr("Weekly Jam Track"),
+        "Weekly Loading Screen" => tr("Weekly Loading Screen"),
+        "Gizmo" => tr("Gizmo"),
+        other => other,
+    }
 }
 
 #[cfg(test)]

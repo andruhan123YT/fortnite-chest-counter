@@ -3,6 +3,16 @@
 Short notes per version. The app shows the new ones once after an update, and
 Settings > Updates shows them again.
 
+## 1.1.4
+
+- **Russian interface.** Pick the language at first start or in Settings > Language.
+- **Several accounts on one PC.** Each Epic account gets its own total, and the menu switches between them. When replays of a new account show up, the app asks whether it is yours. A new name in Epic is picked up by itself, so there is no name to type anymore.
+- **Match clock on the overlay.** Next to IN MATCH, how long the match has run since it loaded.
+- **The overlay hides behind other windows.** Alt+Tab out of Fortnite and it goes; come back and it is there. Settings > Overlay turns this off.
+- **Goes back to waiting after the game.** When the app starts with Fortnite, it returns to waiting a minute after Fortnite closes.
+- **Dug-up chests count.** Buried chests that show up already opened when dug up are counted now. Your matches are counted again once after the update.
+- Fixed: a match removed from the list stays removed after a restart, updates download on slow connections, and checkboxes in Settings apply right away.
+
 ## 1.1.3
 
 - **Leaderboard.** Everyone who runs the app with Online on, by chests, best match and matches, for all time, this week or today. Click a column to sort. Settings > Online shows you as Anonymous instead of your name.

@@ -605,18 +605,6 @@ impl<'s> NetStream<'s> {
         } else {
             self.group_for_static_actor(block.rep_object)
         };
-        if std::env::var("DBGPS").is_ok()
-            && !block.is_actor
-            && actor.archetype.and_then(|a| self.guid_paths.get(&a)).is_some_and(|p| p.contains("PlayerState"))
-        {
-            eprintln!(
-                "PSB found={} rep={} path={:?} layout={}",
-                group.is_some(),
-                block.rep_object,
-                self.guid_paths.get(&block.rep_object),
-                block.has_rep_layout
-            );
-        }
         let Some(group) = group else {
             if block.is_actor {
                 self.ignored.insert(meta.channel);
@@ -657,14 +645,6 @@ impl<'s> NetStream<'s> {
             }
             let Some(field) = r.push_limit(num_bits) else { break };
             let wanted = self.groups[cache].exports.get(&handle).map(|&p| cache_spec.props[p].decoder);
-            if std::env::var("DBGCNC").is_ok() {
-                eprintln!(
-                    "CNC t={} g={} h={handle} bits={num_bits} max={max_handle} wanted={wanted:?} left={}",
-                    meta.time,
-                    self.groups[cache].path,
-                    r.bits_left()
-                );
-            }
             if wanted == Some(Decoder::FastArray) {
                 self.receive_fast_array(r, meta, actor, group, static_actor_id, visitor);
             }
@@ -689,9 +669,6 @@ impl<'s> NetStream<'s> {
         }
         let _array_key = r.read_i32();
         let _base_key = r.read_i32();
-        if std::env::var("DBGCNC").is_ok() {
-            eprintln!("FA start left={}", r.bits_left());
-        }
         let deletes = r.read_i32();
         let changed = r.read_i32();
         let counts = 0..=MAX_FAST_ARRAY_CHANGES;

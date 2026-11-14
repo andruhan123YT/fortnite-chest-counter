@@ -190,6 +190,10 @@ impl State {
         for path in list_replays(&self.settings.replay_dir) {
             let Some((name, size)) = file_key(&path) else { continue };
             let key = (name, size);
+            // The player removed it from the list: even a full re-analysis leaves it out.
+            if self.known.get(&key) == Some(&u32::MAX) {
+                continue;
+            }
             if !force && (self.known.get(&key).is_some_and(|&v| v >= ANALYZER_VERSION) || self.failed.contains(&key)) {
                 continue;
             }

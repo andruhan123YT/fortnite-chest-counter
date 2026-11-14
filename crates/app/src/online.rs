@@ -20,6 +20,7 @@ use crate::record::MatchRecord;
 
 pub const SERVER: &str = "https://chests.l4ve.dev";
 /// Replaces the server address, to try the app against a local server.
+#[cfg(debug_assertions)]
 const SERVER_ENV: &str = "FCC_SYNC_SERVER";
 /// How often the app looks for something to send or ask.
 pub const TICK: Duration = Duration::from_secs(60);
@@ -155,8 +156,17 @@ fn ask_every(age_secs: i64) -> i64 {
     }
 }
 
-/// What to send and ask this round, newest matches first.
-fn plan(matches: &[MatchRecord], saved: &Saved, install: &str, total: u64, anonymous: bool, now: i64) -> Job {
+/// What to send and ask this round, newest matches first. Only matches of the player's
+/// own `accounts` go out; `total` and `anonymous` belong to the first, the active one.
+fn plan(
+    matches: &[MatchRecord],
+    saved: &Saved,
+    install: &str,
+    accounts: &[&str],
+    total: u64,
+    anonymous: bool,
+    now: i64,
+) -> Job {
     let mut uploads: BTreeMap<(String, String), Vec<UploadMatch>> = BTreeMap::new();
     let mut lookup = Vec::new();
     let mut newest_first: Vec<&MatchRecord> = matches.iter().collect();
@@ -164,7 +174,7 @@ fn plan(matches: &[MatchRecord], saved: &Saved, install: &str, total: u64, anony
     for m in newest_first {
         let Some(match_id) = m.match_id.as_deref().filter(|id| is_id(id)) else { continue };
         let Some(me) = m.recorder() else { continue };
-        let Some(my_id) = me.epic_id.as_deref().filter(|id| is_id(id)) else { continue };
+        let Some(my_id) = me.epic_id.as_deref().filter(|id| is_id(id) && accounts.contains(id)) else { continue };
         let counts = (me.opened.len() as u32, me.broken.len() as u32);
         if saved.uploaded.get(match_id) != Some(&counts) {
             uploads.entry((my_id.to_owned(), me.name.clone())).or_default().push(UploadMatch {
@@ -216,8 +226,8 @@ fn plan(matches: &[MatchRecord], saved: &Saved, install: &str, total: u64, anony
         })
         .collect();
     let changed = saved.total_sent != Some(total) || saved.anonymous_sent != Some(anonymous);
-    let total = my_player_id(matches).filter(|_| changed).map(|player| TotalUpload {
-        player,
+    let total = accounts.first().filter(|id| changed && is_id(id)).map(|player| TotalUpload {
+        player: (*player).to_owned(),
         install: install.to_owned(),
         total,
         anonymous,
@@ -225,18 +235,12 @@ fn plan(matches: &[MatchRecord], saved: &Saved, install: &str, total: u64, anony
     Job { uploads, lookup, total }
 }
 
-/// The player's Epic id, from the newest match that names it; totals and the leaderboard
-/// go under it.
-pub fn my_player_id(matches: &[MatchRecord]) -> Option<String> {
-    matches
-        .iter()
-        .filter_map(|m| Some((m.started_at, m.recorder()?.epic_id.as_deref().filter(|id| is_id(id))?)))
-        .max_by_key(|(at, _)| *at)
-        .map(|(_, id)| id.to_owned())
-}
-
 fn server() -> String {
-    std::env::var(SERVER_ENV).unwrap_or_else(|_| SERVER.to_owned()).trim_end_matches('/').to_owned()
+    #[cfg(debug_assertions)]
+    if let Ok(url) = std::env::var(SERVER_ENV) {
+        return url.trim_end_matches('/').to_owned();
+    }
+    SERVER.to_owned()
 }
 
 fn agent() -> ureq::Agent {
@@ -247,39 +251,72 @@ fn agent() -> ureq::Agent {
         .into()
 }
 
-fn post(agent: &ureq::Agent, path: &str, body: &impl Serialize) -> Result<String, String> {
-    let body = serde_json::to_vec(body).map_err(|e| e.to_string())?;
+/// Why a request failed, and whether sending the same thing again can help.
+#[derive(Debug)]
+struct Failure {
+    message: String,
+    /// The server refused this very request (4xx other than "busy"): it would refuse it
+    /// again.
+    refused: bool,
+}
+
+fn post(agent: &ureq::Agent, path: &str, body: &impl Serialize) -> Result<String, Failure> {
+    let failed = |message: String| Failure { message, refused: false };
+    let body = serde_json::to_vec(body).map_err(|e| failed(e.to_string()))?;
     let mut response =
         agent.post(format!("{}{path}", server())).header("Content-Type", "application/json").send(&body[..]).map_err(
             |e| match e {
-                ureq::Error::StatusCode(429) => "the server is busy, will try again".to_string(),
-                ureq::Error::StatusCode(code) => format!("the server answered {code}"),
-                e => e.to_string(),
+                ureq::Error::StatusCode(429) => failed("the server is busy, will try again".to_string()),
+                ureq::Error::StatusCode(code) => {
+                    Failure { message: format!("the server answered {code}"), refused: (400..500).contains(&code) }
+                }
+                e => failed(e.to_string()),
             },
         )?;
-    response.body_mut().read_to_string().map_err(|e| e.to_string())
+    response.body_mut().read_to_string().map_err(|e| failed(e.to_string()))
 }
 
 fn work(agent: &ureq::Agent, job: Job) -> Outcome {
     let mut out = Outcome::default();
     for upload in &job.uploads {
-        if let Err(e) = post(agent, "/v1/matches", upload) {
-            out.error = Some(e);
-            return out;
+        match post(agent, "/v1/matches", upload) {
+            Ok(_) => {}
+            // A batch the server will never take is skipped until its counts change, so
+            // the rest still goes out.
+            Err(e) if e.refused => {
+                crate::config::log_event(&format!(
+                    "the server refused {} matches: {}",
+                    upload.matches.len(),
+                    e.message
+                ));
+                out.error = Some(e.message);
+            }
+            Err(e) => {
+                out.error = Some(e.message);
+                return out;
+            }
         }
         out.uploaded.extend(upload.matches.iter().map(|m| (m.match_id.clone(), (m.opened, m.broken))));
     }
     if let Some(total) = &job.total {
-        if let Err(e) = post(agent, "/v1/total", total) {
-            out.error = Some(e);
-            return out;
+        match post(agent, "/v1/total", total) {
+            Ok(_) => out.total_sent = Some((total.total, total.anonymous)),
+            Err(e) if e.refused => {
+                crate::config::log_event(&format!("the server refused the total: {}", e.message));
+                out.total_sent = Some((total.total, total.anonymous));
+                out.error = Some(e.message);
+            }
+            Err(e) => {
+                out.error = Some(e.message);
+                return out;
+            }
         }
-        out.total_sent = Some((total.total, total.anonymous));
     }
     if job.lookup.is_empty() {
         return out;
     }
     let reply = post(agent, "/v1/lookup", &Lookup { matches: &job.lookup })
+        .map_err(|e| e.message)
         .and_then(|text| serde_json::from_str::<LookupReply>(&text).map_err(|e| e.to_string()));
     match reply {
         Ok(reply) => {
@@ -317,12 +354,15 @@ pub struct Leaderboard {
 #[derive(Serialize)]
 struct LeaderboardAsk<'a> {
     me: &'a str,
+    /// The server marks `me` only when this installation uploads that player's matches.
+    install: &'a str,
 }
 
 /// Asks the server for the leaderboard; blocks, so call it off the UI thread. `me` marks
 /// the player's own row.
-pub fn fetch_leaderboard(me: Option<&str>) -> Result<Leaderboard, String> {
-    let text = post(&agent(), "/v1/leaderboard", &LeaderboardAsk { me: me.unwrap_or("") })?;
+pub fn fetch_leaderboard(me: Option<&str>, install: &str) -> Result<Leaderboard, String> {
+    let text =
+        post(&agent(), "/v1/leaderboard", &LeaderboardAsk { me: me.unwrap_or(""), install }).map_err(|e| e.message)?;
     serde_json::from_str(&text).map_err(|e| e.to_string())
 }
 
@@ -387,7 +427,14 @@ impl Sync {
 
     /// Called every frame: takes back what the network thread did and hands it the next
     /// round when one is due. True when squadmates' counts changed.
-    pub fn tick(&mut self, enabled: bool, matches: &[MatchRecord], install: &str, total: u64, anonymous: bool) -> bool {
+    pub fn tick(
+        &mut self,
+        enabled: bool,
+        matches: &[MatchRecord],
+        install: &str,
+        accounts: &[&str],
+        (total, anonymous): (u64, bool),
+    ) -> bool {
         let mut changed = false;
         while let Ok(out) = self.outcomes.try_recv() {
             self.busy = false;
@@ -396,7 +443,7 @@ impl Sync {
         if enabled && !self.busy && Instant::now() >= self.next {
             self.next = Instant::now() + TICK;
             let now = chrono::Utc::now().timestamp();
-            let job = plan(matches, &self.saved, install, total, anonymous, now);
+            let job = plan(matches, &self.saved, install, accounts, total, anonymous, now);
             if !job.is_empty() && self.jobs.send(job).is_ok() {
                 self.busy = true;
             }
@@ -506,7 +553,7 @@ mod tests {
     #[test]
     fn sends_own_counts_and_asks_about_squadmates_only() {
         let m = record("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "2026-11-09 18:00");
-        let job = plan(&[m], &Saved::default(), "inst", TOTAL, false, at("2026-11-09 18:30"));
+        let job = plan(&[m], &Saved::default(), "inst", &[ME], TOTAL, false, at("2026-11-09 18:30"));
         assert_eq!(job.uploads.len(), 1);
         assert_eq!((job.uploads[0].player.as_str(), job.uploads[0].name.as_str()), (ME, "Me"));
         assert_eq!(job.uploads[0].matches[0].opened, 5);
@@ -524,42 +571,68 @@ mod tests {
         saved.uploaded.insert(id.into(), (5, 0));
         saved.asked.insert(id.into(), at("2026-11-09 18:29"));
         // Uploaded with the same numbers and asked a minute ago: nothing to do yet.
-        assert!(plan(std::slice::from_ref(&m), &saved, "i", TOTAL, false, at("2026-11-09 18:30")).is_empty());
+        assert!(plan(std::slice::from_ref(&m), &saved, "i", &[ME], TOTAL, false, at("2026-11-09 18:30")).is_empty());
         // Two minutes on, a fresh match is asked about again.
-        assert_eq!(plan(std::slice::from_ref(&m), &saved, "i", TOTAL, false, at("2026-11-09 18:31")).lookup.len(), 1);
+        assert_eq!(
+            plan(std::slice::from_ref(&m), &saved, "i", &[ME], TOTAL, false, at("2026-11-09 18:31")).lookup.len(),
+            1
+        );
         // A day old, it waits half an hour between asks.
         saved.asked.insert(id.into(), at("2026-11-10 18:30"));
-        assert!(plan(std::slice::from_ref(&m), &saved, "i", TOTAL, false, at("2026-11-10 18:45")).lookup.is_empty());
-        assert_eq!(plan(std::slice::from_ref(&m), &saved, "i", TOTAL, false, at("2026-11-10 19:00")).lookup.len(), 1);
+        assert!(plan(std::slice::from_ref(&m), &saved, "i", &[ME], TOTAL, false, at("2026-11-10 18:45"))
+            .lookup
+            .is_empty());
+        assert_eq!(
+            plan(std::slice::from_ref(&m), &saved, "i", &[ME], TOTAL, false, at("2026-11-10 19:00")).lookup.len(),
+            1
+        );
         // Once every squadmate is found, twice a day for three days, then never again.
         saved.found.push(Found { match_id: id.into(), player: MATE.into(), name: "Mate".into(), opened: 9, broken: 1 });
-        assert!(plan(std::slice::from_ref(&m), &saved, "i", TOTAL, false, at("2026-11-11 06:00")).is_empty());
-        assert_eq!(plan(std::slice::from_ref(&m), &saved, "i", TOTAL, false, at("2026-11-11 06:30")).lookup.len(), 1);
+        assert!(plan(std::slice::from_ref(&m), &saved, "i", &[ME], TOTAL, false, at("2026-11-11 06:00")).is_empty());
+        assert_eq!(
+            plan(std::slice::from_ref(&m), &saved, "i", &[ME], TOTAL, false, at("2026-11-11 06:30")).lookup.len(),
+            1
+        );
         saved.asked.insert(id.into(), at("2026-11-12 17:00"));
-        assert!(plan(&[m], &saved, "i", TOTAL, false, at("2026-11-13 06:00")).is_empty());
+        assert!(plan(&[m], &saved, "i", &[ME], TOTAL, false, at("2026-11-13 06:00")).is_empty());
     }
 
     #[test]
     fn the_total_goes_once_and_again_when_it_changes() {
         let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let m = record(id, "2026-11-09 18:00");
-        let job = plan(std::slice::from_ref(&m), &Saved::default(), "i", 3631, false, at("2026-11-09 18:30"));
+        let job = plan(std::slice::from_ref(&m), &Saved::default(), "i", &[ME], 3631, false, at("2026-11-09 18:30"));
         assert_eq!(
             job.total,
             Some(TotalUpload { player: ME.into(), install: "i".into(), total: 3631, anonymous: false })
         );
         let saved = Saved { total_sent: Some(3631), anonymous_sent: Some(false), ..Default::default() };
-        assert!(plan(std::slice::from_ref(&m), &saved, "i", 3631, false, at("2026-11-09 18:30")).total.is_none());
+        assert!(plan(std::slice::from_ref(&m), &saved, "i", &[ME], 3631, false, at("2026-11-09 18:30"))
+            .total
+            .is_none());
         assert_eq!(
-            plan(std::slice::from_ref(&m), &saved, "i", 3632, false, at("2026-11-09 18:30")).total.unwrap().total,
+            plan(std::slice::from_ref(&m), &saved, "i", &[ME], 3632, false, at("2026-11-09 18:30"))
+                .total
+                .unwrap()
+                .total,
             3632
         );
         // Hiding the name in the leaderboard sends it again.
         assert!(
-            plan(std::slice::from_ref(&m), &saved, "i", 3631, true, at("2026-11-09 18:30")).total.unwrap().anonymous
+            plan(std::slice::from_ref(&m), &saved, "i", &[ME], 3631, true, at("2026-11-09 18:30"))
+                .total
+                .unwrap()
+                .anonymous
         );
-        // Without a match that names the player there is nobody to send it for.
-        assert!(plan(&[], &Saved::default(), "i", 3631, false, at("2026-11-09 18:30")).total.is_none());
+        // Until a replay shows the player's account there is nobody to send it for.
+        assert!(plan(&[], &Saved::default(), "i", &[], 3631, false, at("2026-11-09 18:30")).total.is_none());
+    }
+
+    #[test]
+    fn matches_of_other_accounts_stay_here() {
+        let m = record("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "2026-11-09 18:00");
+        let job = plan(&[m], &Saved::default(), "i", &[STRANGER], TOTAL, false, at("2026-11-09 18:30"));
+        assert!(job.uploads.is_empty() && job.lookup.is_empty());
     }
 
     #[test]
@@ -573,7 +646,7 @@ mod tests {
         let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let mut saved = Saved::default();
         saved.uploaded.insert(id.into(), (4, 0));
-        let job = plan(&[record(id, "2026-11-09 18:00")], &saved, "i", TOTAL, false, at("2026-11-09 18:30"));
+        let job = plan(&[record(id, "2026-11-09 18:00")], &saved, "i", &[ME], TOTAL, false, at("2026-11-09 18:30"));
         assert_eq!(job.uploads[0].matches[0].opened, 5);
     }
 

@@ -13,6 +13,9 @@ use std::time::{Duration, SystemTime};
 use chrono::{DateTime, NaiveDateTime, Utc};
 
 const POLL: Duration = Duration::from_secs(3);
+/// How much of the log already there is read at start to find a match in progress: a
+/// whole match fits many times over.
+const RECENT_BYTES: u64 = 16 * 1024 * 1024;
 /// Recording starts some seconds into a match, so a shorter visit proves nothing.
 const MIN_MATCH: chrono::Duration = chrono::Duration::seconds(90);
 
@@ -63,6 +66,15 @@ pub struct Tracker {
     current: Option<Played>,
 }
 
+/// What the game log tells the app.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LogEvent {
+    /// The game loaded a match server: the player is on the starting island.
+    Joined(DateTime<Utc>),
+    /// The player is back in the lobby.
+    Left(Played),
+}
+
 /// The time at the start of a log line, `[2026.11.10-18.14.30:009]`, which is UTC.
 fn stamp(line: &str) -> Option<DateTime<Utc>> {
     let text = line.strip_prefix('[')?.get(..19)?;
@@ -70,6 +82,11 @@ fn stamp(line: &str) -> Option<DateTime<Utc>> {
 }
 
 impl Tracker {
+    /// When the match the player is in now was loaded.
+    pub fn joined(&self) -> Option<DateTime<Utc>> {
+        self.current.as_ref().and_then(|p| p.started)
+    }
+
     pub fn line(&mut self, line: &str) -> Option<Played> {
         if let Some(rest) = line.split("LoadMap: ").nth(1) {
             if rest.starts_with("/Game/Maps/Frontend") {
@@ -120,6 +137,22 @@ impl Tail {
         Self { path, created, offset, partial: Vec::new() }
     }
 
+    /// The last part of the log that was there when following began, whole lines only.
+    fn before(&self) -> Vec<String> {
+        let Ok(mut file) = std::fs::File::open(&self.path) else { return Vec::new() };
+        let from = self.offset.saturating_sub(RECENT_BYTES);
+        if file.seek(SeekFrom::Start(from)).is_err() {
+            return Vec::new();
+        }
+        let mut chunk = Vec::new();
+        if file.take(self.offset - from).read_to_end(&mut chunk).is_err() {
+            return Vec::new();
+        }
+        // Reading from the middle of the file cuts the first line.
+        let start = if from > 0 { chunk.iter().position(|&b| b == b'\n').map_or(chunk.len(), |i| i + 1) } else { 0 };
+        String::from_utf8_lossy(&chunk[start..]).lines().map(str::to_owned).collect()
+    }
+
     fn lines(&mut self) -> Vec<String> {
         let Ok(meta) = std::fs::metadata(&self.path) else { return Vec::new() };
         let created = meta.created().ok();
@@ -145,16 +178,36 @@ impl Tail {
     }
 }
 
-/// Follows the log on a thread of its own and sends every match it sees end.
-pub fn watch(path: &Path, wake: impl Fn() + Send + 'static) -> Receiver<Played> {
+/// Follows the log on a thread of its own and sends every match it sees start and end.
+pub fn watch(path: &Path, wake: impl Fn() + Send + 'static) -> Receiver<LogEvent> {
     let (tx, rx) = mpsc::channel();
     let mut tail = Tail::new(path.to_path_buf());
     let _ = std::thread::Builder::new().name("game-log".into()).spawn(move || {
+        // Started in the middle of a match, the app learns when it began from the log so
+        // far; the matches already over there were handled by the run that saw them.
         let mut tracker = Tracker::default();
+        for line in tail.before() {
+            tracker.line(&line);
+        }
+        if let Some(at) = tracker.joined() {
+            if tx.send(LogEvent::Joined(at)).is_err() {
+                return;
+            }
+            wake();
+        }
         loop {
             for line in tail.lines() {
+                let before = tracker.joined();
+                let mut events = Vec::new();
                 if let Some(played) = tracker.line(&line) {
-                    if tx.send(played).is_err() {
+                    events.push(LogEvent::Left(played));
+                }
+                match tracker.joined() {
+                    Some(at) if Some(at) != before => events.push(LogEvent::Joined(at)),
+                    _ => {}
+                }
+                for event in events {
+                    if tx.send(event).is_err() {
                         return;
                     }
                     wake();
@@ -239,6 +292,29 @@ mod tests {
         let played = run(&[START, PLAYLIST, START, PLAYLIST, RECORDING, LOBBY]);
         assert_eq!(played.len(), 1);
         assert!(played[0].recorded);
+    }
+
+    #[test]
+    fn a_match_in_progress_at_start_is_found_in_the_log_so_far() {
+        let dir = std::env::temp_dir().join(format!("fcc-gamelog-start-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("FortniteGame.log");
+        let later = START.replace("18.14.30", "18.40.00");
+        std::fs::write(&path, format!("{START}\n{RECORDING}\n{LOBBY}\n{later}\n")).unwrap();
+        let tail = Tail::new(path.clone());
+        let mut tracker = Tracker::default();
+        for line in tail.before() {
+            tracker.line(&line);
+        }
+        assert_eq!(tracker.joined(), stamp(&later));
+
+        std::fs::write(&path, format!("{START}\n{LOBBY}\n")).unwrap();
+        let mut tracker = Tracker::default();
+        for line in Tail::new(path).before() {
+            tracker.line(&line);
+        }
+        assert_eq!(tracker.joined(), None, "back in the lobby: no match running");
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

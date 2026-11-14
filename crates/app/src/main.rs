@@ -8,12 +8,14 @@ mod changelog;
 mod cli;
 mod config;
 mod gamelog;
+mod i18n;
 mod icon;
 mod online;
 mod overlay;
 mod platform;
 mod quest;
 mod record;
+mod sleep;
 mod stats;
 mod store;
 mod stream;
@@ -34,6 +36,10 @@ fn main() -> ExitCode {
         return code;
     }
     let waited = args.iter().any(|a| a == platform::WAIT_FOR_FORTNITE_ARG);
+    if args.iter().any(|a| a == platform::AFTER_SLEEP_ARG) {
+        // Started by the copy going to sleep, which is closing: let it go first.
+        platform::wait_instance_gone(std::time::Duration::from_secs(30));
+    }
     if waited && !wait_for_fortnite() {
         return ExitCode::SUCCESS;
     }

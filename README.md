@@ -39,13 +39,18 @@ what gets sent.
 - **A stream overlay for OBS**: your count as a Browser source with a transparent
   background, updating on its own after every match.
 - **Starts when Fortnite does** (or with Windows, if you prefer), runs in the tray and
-  counts each match when you're back in the lobby, with a notification.
+  counts each match when you're back in the lobby, with a notification. A minute after
+  the game closes it counts the last match and goes back to waiting for the next one.
 - **Tells you when a match wasn't recorded.** It follows Fortnite's own log, so if replays
   are off (or land in another folder) you hear about it after one match, not at the end
   of the season.
 - **Leaderboard** of everyone who runs the app with Online mode: chests (opened and
   broken), the best match and matches recorded, for all time, this week or today. Sort by
   any column. Settings > Online shows you as Anonymous instead.
+- **Several Epic accounts on one PC.** Each account that records replays here gets its
+  own total, matches, quest base and prizes. Switch at the top of the menu; the app
+  follows whoever played last.
+- **English or Russian.** The first-run wizard asks; Settings > Language switches on the spot.
 - **Keeps copies of your replays**, because Fortnite deletes everything past the last 100.
 - **Updates itself** from this repository's releases.
 
@@ -66,7 +71,8 @@ Settings > Updates > Check for updates). When there is one, an **Update to vX** 
 shows up in the sidebar: it downloads the new exe, checks it against the release's
 SHA-256 file and restarts into it. Your matches and settings stay as they are. The first
 time you open the window after an update, a short "What's new" list from
-[CHANGELOG.md](CHANGELOG.md) shows what changed; Settings > Updates > What's new shows it again.
+[CHANGELOG.md](CHANGELOG.md) (or [CHANGELOG.ru.md](CHANGELOG.ru.md) in Russian) shows what changed;
+Settings > Updates > What's new shows it again.
 
 Each release has three files:
 
@@ -104,7 +110,8 @@ window from the tray icon for:
 - **Leaderboard**: players with Online mode by chests (opened and broken), best match and
   matches recorded; all time, this week (from Sunday) or today (days start at 00:00 UTC,
   as Fortnite's). Click a column to sort; your own row is gold.
-- **Settings**: replay folder, autostart (when Fortnite starts, or when Windows does),
+- **Settings**: language (English or Russian; the first-run wizard asks too), replay
+  folder, autostart (when Fortnite starts, or when Windows does),
   replay archiving, and an in-game overlay that
   shows your count on top of the game (off by default; mouse clicks pass through it).
   Put it in a corner, or click the lock in its top right corner to drag it anywhere and
@@ -280,7 +287,8 @@ python tools/package.py
 
 It lands in `dist\`, next to `fortnite-chest-counter.exe.sha256`.
 
-To release an update: add a section for it to `CHANGELOG.md` (a test fails without one),
+To release an update: add a section for it to `CHANGELOG.md` and the same items in Russian
+to `CHANGELOG.ru.md` (tests fail without either),
 set the new `version` in the root `Cargo.toml`, commit, then push a
 tag with the same version (`git tag v1.0.1 && git push origin v1.0.1`). GitHub Actions
 runs the tests, builds the exe, its `.sha256` and the zip and publishes them as a release
@@ -290,6 +298,11 @@ look for exactly those two file names, so keep them.
 Not in this repository: build output (`target\`, `dist\`) and replay files (5 to 30 MB
 each, and they contain other players' names). The island picture the map shows is
 `crates/app/assets/map.png`, built into the exe.
+
+Interface text stays in English in the code, wrapped in `tr("...")` or `trf("... {0}", &[..])`;
+`crates/app/src/i18n/ru.rs` holds the Russian for each, keyed by the English. A test reads
+the sources and fails on any wrapped text without a translation, so add the Russian along
+with any new text.
 
 ## How it works
 

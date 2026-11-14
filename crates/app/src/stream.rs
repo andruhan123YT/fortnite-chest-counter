@@ -19,6 +19,12 @@ const PAGE: &str = include_str!("../assets/stream.html");
 /// page reloads itself when `/data` reports a newer one after an app update.
 const PAGE_TAG: u64 = fnv1a(PAGE.as_bytes());
 
+/// The page's tag as served: it carries the language too, so OBS reloads the page for
+/// new labels when the app's language changes.
+fn page_tag() -> String {
+    format!("{PAGE_TAG:016x}-{:?}", crate::i18n::lang()).to_lowercase()
+}
+
 const fn fnv1a(bytes: &[u8]) -> u64 {
     let mut hash = 0xcbf2_9ce4_8422_2325u64;
     let mut i = 0;
@@ -224,12 +230,24 @@ fn respond(request: &str, port: u16, data: &Snapshot) -> Vec<u8> {
     }
     match path.split('?').next().unwrap_or_default() {
         "/" | "/overlay" => {
-            let page = PAGE.replace("__PAGE_TAG__", &format!("{PAGE_TAG:016x}"));
+            let mut page = PAGE.replace("__PAGE_TAG__", &page_tag());
+            // The page's labels in the app's language.
+            use crate::i18n::tr;
+            for (english, label) in [
+                ("CHESTS", tr("CHESTS")),
+                ("IN MATCH", tr("IN MATCH")),
+                ("LAST MATCH", tr("LAST MATCH")),
+                ("TODAY", tr("TODAY")),
+                ("SQUAD", tr("SQUAD")),
+                ("TREASURES", tr("TREASURES")),
+            ] {
+                page = page.replace(&format!(">{english}<"), &format!(">{label}<"));
+            }
             reply("200 OK", "text/html; charset=utf-8", page.as_bytes())
         }
         "/data" => {
             let mut json = serde_json::to_value(data).unwrap_or_default();
-            json["page"] = format!("{PAGE_TAG:016x}").into();
+            json["page"] = page_tag().into();
             let body = serde_json::to_vec(&json).unwrap_or_default();
             reply("200 OK", "application/json", &body)
         }
@@ -280,7 +298,7 @@ mod tests {
         assert_eq!(value["show"]["squad"], true);
         // The page knows its own tag, so it can tell when the app serves a newer one.
         let tag = value["page"].as_str().unwrap();
-        assert_eq!(tag.len(), 16);
+        assert_eq!(tag, format!("{PAGE_TAG:016x}-en"));
         assert!(body(&page).contains(&format!("const PAGE_TAG = \"{tag}\"")));
         assert!(!body(&page).contains("__PAGE_TAG__"));
     }

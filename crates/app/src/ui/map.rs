@@ -11,6 +11,7 @@ use egui_plot::{
 
 use crate::app::ChestApp;
 use crate::config::{data_dir, Settings};
+use crate::i18n::{tr, trf};
 use crate::record::MatchRecord;
 use crate::theme;
 
@@ -112,12 +113,12 @@ impl MapUi {
                     self.picture = Some(texture);
                     return;
                 }
-                Err(e) => self.picture_error = Some(format!("Could not read {}: {e}", path.display())),
+                Err(e) => self.picture_error = Some(trf("Could not read {0}: {1}", &[&path.display(), &e])),
             }
         }
         match load_picture(ctx, None) {
             Ok(texture) => self.picture = Some(texture),
-            Err(e) => self.picture_error = Some(format!("Could not load the built-in map: {e}")),
+            Err(e) => self.picture_error = Some(trf("Could not load the built-in map: {0}", &[&e])),
         }
     }
 
@@ -139,7 +140,7 @@ impl MapUi {
         self.picture_tried = false;
         if let Err(e) = copied {
             self.picture_tried = true;
-            self.picture_error = Some(format!("Could not copy the picture: {e}"));
+            self.picture_error = Some(trf("Could not copy the picture: {0}", &[&e]));
             return;
         }
         self.ensure_picture(ctx);
@@ -155,79 +156,82 @@ fn plot_point(x: f64, y: f64) -> [f64; 2] {
 
 fn scope_help(settings: &Settings) -> String {
     let since = match settings.count_since {
-        Some(at) => format!(
+        Some(at) => trf(
             "Counted matches: matches that add to your chest count, the ones that started at or after \
-             \"Count matches from\" in Settings ({}). Overview and Stats use the same matches.",
-            at.format("%Y-%m-%d %H:%M")
+             \"Count matches from\" in Settings ({0}). Overview and Stats use the same matches.",
+            &[&at.format("%Y-%m-%d %H:%M")],
         ),
-        None => "Counted matches: matches that add to your chest count. \"Count matches from\" in Settings is empty, \
-                 so right now this is every match."
-            .to_owned(),
+        None => {
+            tr("Counted matches: matches that add to your chest count. \"Count matches from\" in Settings is empty, \
+                 so right now this is every match.")
+            .to_owned()
+        }
     };
-    format!(
-        "{since}\n\nAll matches: every match in the Matches list, including the ones marked \"not counted\" \
+    trf(
+        "{0}\n\nAll matches: every match in the Matches list, including the ones marked \"not counted\" \
          that started earlier. Their chests are shown on the map but not added to your count.\n\n\
-         Selected match: only the match picked in the Matches list."
+         Selected match: only the match picked in the Matches list.",
+        &[&since],
     )
 }
 
 pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
     app.map_ui.ensure_picture(ui.ctx());
     ui.horizontal(|ui| {
-        ui.label(theme::title("Map"));
+        ui.label(theme::title(tr("Map")));
         ui.add_space(16.0);
         let ui_state = &mut app.map_ui;
-        ui.selectable_value(&mut ui_state.scope, Scope::Counted, "Counted matches");
-        ui.selectable_value(&mut ui_state.scope, Scope::Selected, "Selected match");
-        ui.selectable_value(&mut ui_state.scope, Scope::Everything, "All matches");
+        ui.selectable_value(&mut ui_state.scope, Scope::Counted, tr("Counted matches"));
+        ui.selectable_value(&mut ui_state.scope, Scope::Selected, tr("Selected match"));
+        ui.selectable_value(&mut ui_state.scope, Scope::Everything, tr("All matches"));
         theme::info_icon(ui, scope_help(&app.settings));
         let ui_state = &mut app.map_ui;
         ui.separator();
-        ui.checkbox(&mut ui_state.show_squad, "Teammates");
+        ui.checkbox(&mut ui_state.show_squad, tr("Teammates"));
         if ui_state.picture.is_some() {
-            ui.checkbox(&mut ui_state.show_picture, "Map picture");
-            if ui.checkbox(&mut app.settings.dim_map, "Dim map").changed() {
+            ui.checkbox(&mut ui_state.show_picture, tr("Map picture"));
+            if ui.checkbox(&mut app.settings.dim_map, tr("Dim map")).changed() {
                 let _ = app.settings.save();
             }
         }
         if cfg!(windows)
             && ui
-                .button("Change picture...")
-                .on_hover_text("Use your own PNG of the island, framed like the built-in one")
+                .button(tr("Change picture..."))
+                .on_hover_text(tr("Use your own PNG of the island, framed like the built-in one"))
                 .clicked()
         {
-            if let Some(path) = super::settings::pick_file("PNG picture", "png") {
+            if let Some(path) = super::settings::pick_file(tr("PNG picture"), "png") {
                 ui_state.replace_picture(ui.ctx(), &path);
             }
         }
-        if picture_path().exists() && ui.button("Use built-in map").clicked() {
+        if picture_path().exists() && ui.button(tr("Use built-in map")).clicked() {
             ui_state.use_built_in(ui.ctx());
         }
     });
-    ui.label(theme::caption(
+    ui.label(theme::caption(tr(
         "Positions are where the chest was opened from or where its loot burst out. Drag to pan, scroll to zoom.",
-    ));
+    )));
     if let Some(error) = &app.map_ui.picture_error {
         ui.label(RichText::new(error).color(theme::BROKEN));
     }
 
-    let nick = app.settings.nick.clone();
+    let settings = app.settings.clone();
     let scope = app.map_ui.scope;
     let matches: Vec<&MatchRecord> = app
         .store
         .matches
         .iter()
         .filter(|m| match scope {
-            Scope::Counted => app.settings.counts(m.started_at),
+            Scope::Counted => settings.owns(m) && settings.counts(m.started_at),
             Scope::Selected => app.selected_match.as_deref() == Some(m.id.as_str()),
-            Scope::Everything => true,
+            Scope::Everything => settings.owns(m),
         })
         .collect();
 
     let mut markers = Vec::new();
     for m in &matches {
-        let who = m.player_name(&nick);
-        let team = m.me(&nick).and_then(|p| p.team);
+        let who = m.player_name(settings.name_in(m));
+        let team = m.me(who).and_then(|p| p.team);
         for p in m.roster() {
             let mine = same_name(&p.name, who);
             let mate = !mine && team.is_some() && p.team == team;
@@ -244,9 +248,9 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
 
     if markers.is_empty() {
         ui.add_space(20.0);
-        ui.label(RichText::new("Nothing to show yet.").color(theme::MUTED));
+        ui.label(RichText::new(tr("Nothing to show yet.")).color(theme::MUTED));
         if scope == Scope::Selected && app.selected_match.is_none() {
-            ui.label(theme::caption("Pick a match on the Matches page first."));
+            ui.label(theme::caption(tr("Pick a match on the Matches page first.")));
         }
         return;
     }
@@ -262,7 +266,7 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
     // A picked chest that is no longer shown (another scope, a hidden series, a match
     // that changed) is dropped.
     let resolve_picked = |picked: &Option<PickedChest>| {
-        picked.as_ref().and_then(|c| resolve(&matches, c, &nick)).filter(|p| shown_series(p.series))
+        picked.as_ref().and_then(|c| resolve(&matches, c, &settings)).filter(|p| shown_series(p.series))
     };
     let mut picked = resolve_picked(&app.map_ui.picked);
     if picked.is_none() {
@@ -391,9 +395,9 @@ impl Series {
 
     fn style(self) -> (&'static str, Color32, MarkerShape) {
         match self {
-            Self::Opened => ("Opened", OPENED, MarkerShape::Circle),
-            Self::Broken => ("Broken", BROKEN, MarkerShape::Square),
-            Self::Teammate => ("Teammates", TEAMMATE, MarkerShape::Diamond),
+            Self::Opened => (tr("Opened"), OPENED, MarkerShape::Circle),
+            Self::Broken => (tr("Broken"), BROKEN, MarkerShape::Square),
+            Self::Teammate => (tr("Teammates"), TEAMMATE, MarkerShape::Diamond),
         }
     }
 }
@@ -433,13 +437,13 @@ struct Resolved<'a> {
     total: usize,
 }
 
-fn resolve<'a>(matches: &[&'a MatchRecord], chest: &PickedChest, nick: &str) -> Option<Resolved<'a>> {
+fn resolve<'a>(matches: &[&'a MatchRecord], chest: &PickedChest, settings: &Settings) -> Option<Resolved<'a>> {
     let record = *matches.iter().find(|m| m.id == chest.match_id)?;
     let player = record.roster().find(|p| same_name(&p.name, &chest.player))?;
     let events = player.in_order();
     let index = events.iter().position(|&(e, opened)| e.time == chest.time && opened == chest.opened)?;
     let (event, opened) = events[index];
-    let series = Series::of(same_name(&player.name, record.player_name(nick)), opened);
+    let series = Series::of(same_name(&player.name, record.player_name(settings.name_in(record))), opened);
     Some(Resolved { record, player, event, opened, series, index, total: events.len() })
 }
 
@@ -450,38 +454,42 @@ fn picked_panel(ui: &mut egui::Ui, picked: Option<&Resolved<'_>>, scope: Scope) 
     ui.horizontal_wrapped(|ui| {
         ui.set_min_height(26.0);
         let Some(p) = picked else {
-            ui.label(theme::caption("Click a marker to see when that chest was opened or broken."));
+            ui.label(theme::caption(tr("Click a marker to see when that chest was opened or broken.")));
             return;
         };
-        let back = theme::arrow_button(ui, true, p.index > 0).on_hover_text("Earlier chest in this match");
+        let back = theme::arrow_button(ui, true, p.index > 0).on_hover_text(tr("Earlier chest in this match"));
         if back.clicked() {
             step = Some(p.index - 1);
         }
-        let next = theme::arrow_button(ui, false, p.index + 1 < p.total).on_hover_text("Later chest in this match");
+        let next = theme::arrow_button(ui, false, p.index + 1 < p.total).on_hover_text(tr("Later chest in this match"));
         if next.clicked() {
             step = Some(p.index + 1);
         }
         let (verb, color) = match (p.opened, p.event.in_vehicle) {
-            (true, _) => ("Opened", OPENED),
-            (false, true) => ("Rammed", BROKEN),
-            (false, false) => ("Broke", BROKEN),
+            (true, _) => (tr("Opened"), OPENED),
+            (false, true) => (tr("Rammed"), BROKEN),
+            (false, false) => (tr("Broke"), BROKEN),
         };
-        let chest = format!("{} chest", p.event.kind.label().to_lowercase());
+        let what = trf("{0} a {1}", &[&verb, &theme::chest_phrase(p.event.kind)]);
+        let (index, total) = (p.index + 1, p.total);
         if p.series == Series::Teammate {
-            ui.label(RichText::new(format!("{} ({verb} a {chest})", p.player.name)).strong().color(TEAMMATE));
-            ui.label(format!("their chest {} of {} in this match", p.index + 1, p.total));
+            ui.label(RichText::new(trf("{0} ({1})", &[&p.player.name, &what])).strong().color(TEAMMATE));
+            ui.label(trf("their chest {0} of {1} in this match", &[&index, &total]));
         } else {
-            ui.label(RichText::new(format!("{verb} a {chest}")).strong().color(color));
-            ui.label(format!("chest {} of {} in this match", p.index + 1, p.total));
+            ui.label(RichText::new(what).strong().color(color));
+            ui.label(trf("chest {0} of {1} in this match", &[&index, &total]));
         }
         ui.label(RichText::new(format!("{} {}", p.record.clock(p.event.time), p.record.clock_origin())).strong());
         if scope != Scope::Selected {
             if let Some(at) = p.record.started_at {
-                ui.label(theme::caption(format!("match of {}", at.format("%d %b %H:%M"))));
+                ui.label(theme::caption(trf(
+                    "match of {0}",
+                    &[&at.format(&crate::i18n::date_format(&at, "%d %b %H:%M"))],
+                )));
             }
         }
         if p.event.x.is_none() {
-            ui.label(theme::caption("(no position recorded, so not on the map)"));
+            ui.label(theme::caption(tr("(no position recorded, so not on the map)")));
         }
     });
     step
@@ -517,20 +525,25 @@ mod tests {
         let mut record =
             MatchRecord { id: "m".into(), owner: Some("Me".into()), players: vec![me], ..Default::default() };
         let pick = PickedChest { match_id: "m".into(), player: "me".into(), time: 10.0, opened: true };
-        let got = resolve(&[&record], &pick, "").unwrap();
+        let got = resolve(&[&record], &pick, &crate::config::Settings::default()).unwrap();
         // Broken at 5 s, then opened at 10 s: the second chest of two.
         assert_eq!((got.index, got.total, got.series), (1, 2, Series::Opened));
 
         // An earlier chest shows up (say, after a re-analysis): the pick follows its chest.
         record.players[0].opened.push(chest(1.0));
-        let got = resolve(&[&record], &pick, "").unwrap();
+        let got = resolve(&[&record], &pick, &crate::config::Settings::default()).unwrap();
         assert_eq!((got.index, got.total), (2, 3));
 
         // The same moment as a break is a different chest.
-        assert!(resolve(&[&record], &PickedChest { opened: false, ..pick.clone() }, "").is_none());
+        assert!(resolve(
+            &[&record],
+            &PickedChest { opened: false, ..pick.clone() },
+            &crate::config::Settings::default()
+        )
+        .is_none());
         // Picked chest gone: nothing is picked.
         record.players[0].opened.clear();
-        assert!(resolve(&[&record], &pick, "").is_none());
+        assert!(resolve(&[&record], &pick, &crate::config::Settings::default()).is_none());
     }
 
     // World coordinates of v43.00 locations.

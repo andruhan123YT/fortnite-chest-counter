@@ -17,6 +17,8 @@ const EXE_ASSET: &str = "fortnite-chest-counter.exe";
 const SUM_ASSET: &str = "fortnite-chest-counter.exe.sha256";
 pub const CHECK_EVERY: Duration = Duration::from_secs(10 * 60);
 /// Replaces the GitHub address of the latest release, to try updates against a local copy.
+/// Debug builds only: a release must never be talked into downloading from elsewhere.
+#[cfg(debug_assertions)]
 const FEED_ENV: &str = "FCC_UPDATE_FEED";
 /// Passed to the new exe so it waits for the old one to quit instead of handing over to it.
 pub const AFTER_UPDATE_ARG: &str = "--after-update";
@@ -73,16 +75,24 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
+/// No limit on the whole request, so a slow connection still gets the exe; a connection
+/// that stops sending for a minute is given up.
 fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(120)))
+        .timeout_connect(Some(Duration::from_secs(20)))
+        .timeout_recv_response(Some(Duration::from_secs(60)))
+        .timeout_per_read(Some(Duration::from_secs(60)))
         .user_agent(format!("fortnite-chest-counter/{}", env!("CARGO_PKG_VERSION")))
         .build()
         .into()
 }
 
 fn feed_url() -> String {
-    std::env::var(FEED_ENV).unwrap_or_else(|_| format!("https://api.github.com/repos/{REPO}/releases/latest"))
+    #[cfg(debug_assertions)]
+    if let Ok(url) = std::env::var(FEED_ENV) {
+        return url;
+    }
+    format!("https://api.github.com/repos/{REPO}/releases/latest")
 }
 
 /// Asks GitHub for the latest release. `Ok(None)`: nothing newer, or no release yet.

@@ -55,21 +55,25 @@ mod windows_tray {
     use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
 
     use super::TrayAction;
+    use crate::i18n::tr;
     use crate::{icon, platform, APP_NAME};
 
     pub struct Inner {
         icon: TrayIcon,
+        open: MenuItem,
+        scan: MenuItem,
         watch_item: CheckMenuItem,
         overlay_item: CheckMenuItem,
+        quit: MenuItem,
     }
 
     impl Inner {
         pub fn new(ctx: eframe::egui::Context, tx: Sender<TrayAction>, watching: bool, overlay: bool) -> Option<Self> {
-            let open = MenuItem::new("Open", true, None);
-            let scan = MenuItem::new("Scan replays now", true, None);
-            let watch_item = CheckMenuItem::new("Watch for new matches", true, watching, None);
-            let overlay_item = CheckMenuItem::new("Show overlay in game", true, overlay, None);
-            let quit = MenuItem::new("Quit", true, None);
+            let open = MenuItem::new(tr("Open"), true, None);
+            let scan = MenuItem::new(tr("Scan replays now"), true, None);
+            let watch_item = CheckMenuItem::new(tr("Watch for new matches"), true, watching, None);
+            let overlay_item = CheckMenuItem::new(tr("Show overlay in game"), true, overlay, None);
+            let quit = MenuItem::new(tr("Quit"), true, None);
             let menu = Menu::new();
             menu.append_items(&[&open, &scan, &watch_item, &overlay_item, &PredefinedMenuItem::separator(), &quit])
                 .ok()?;
@@ -111,13 +115,19 @@ mod windows_tray {
                 .with_menu_on_left_click(false)
                 .build()
                 .ok()?;
-            Some(Self { icon, watch_item, overlay_item })
+            Some(Self { icon, open, scan, watch_item, overlay_item, quit })
         }
 
+        /// The tooltip changes with the language too, so the menu follows it here.
         pub fn set_status(&self, tooltip: &str, watching: bool, overlay: bool) {
             let _ = self.icon.set_tooltip(Some(tooltip));
             self.watch_item.set_checked(watching);
             self.overlay_item.set_checked(overlay);
+            self.open.set_text(tr("Open"));
+            self.scan.set_text(tr("Scan replays now"));
+            self.watch_item.set_text(tr("Watch for new matches"));
+            self.overlay_item.set_text(tr("Show overlay in game"));
+            self.quit.set_text(tr("Quit"));
         }
     }
 }

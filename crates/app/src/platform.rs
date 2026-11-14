@@ -13,13 +13,36 @@ mod imp {
         CreateEventW, CreateMutexW, OpenEventW, SetEvent, WaitForSingleObject, EVENT_MODIFY_STATE, INFINITE,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        FindWindowW, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
+        FindWindowExW, GetWindowThreadProcessId, IsWindowVisible, SetForegroundWindow, ShowWindow, SW_RESTORE, SW_SHOW,
     };
 
     use super::APP_NAME;
 
     fn wide(s: &str) -> Vec<u16> {
         std::ffi::OsStr::new(s).encode_wide().chain(std::iter::once(0)).collect()
+    }
+
+    /// This app's own top-level window titled `title`. Another program's window with the
+    /// same title, such as Explorer open on the app's data folder, is skipped.
+    fn own_window(title: &str) -> windows_sys::Win32::Foundation::HWND {
+        use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+        let title = wide(title);
+        let mut hwnd = std::ptr::null_mut();
+        // SAFETY: `title` is a valid null-terminated UTF-16 string; a null parent and class
+        // walk every top-level window with that title; the pid pointer lives through the call.
+        unsafe {
+            loop {
+                hwnd = FindWindowExW(std::ptr::null_mut(), hwnd, std::ptr::null(), title.as_ptr());
+                if hwnd.is_null() {
+                    return hwnd;
+                }
+                let mut pid = 0;
+                GetWindowThreadProcessId(hwnd, &mut pid);
+                if pid == GetCurrentProcessId() {
+                    return hwnd;
+                }
+            }
+        }
     }
 
     pub fn attach_parent_console() {
@@ -100,6 +123,21 @@ mod imp {
         }
     }
 
+    /// Returns once no instance runs, or after `max`.
+    pub fn wait_instance_gone(max: std::time::Duration) {
+        let deadline = std::time::Instant::now() + max;
+        while instance_running() && std::time::Instant::now() < deadline {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+    }
+
+    /// The main window is on screen or in the taskbar, not hidden in the tray.
+    pub fn main_window_visible() -> bool {
+        let hwnd = own_window(APP_NAME);
+        // SAFETY: the handle is checked before use.
+        unsafe { !hwnd.is_null() && IsWindowVisible(hwnd) != 0 }
+    }
+
     /// Calls `on_activate` whenever a second instance asks this one to show itself.
     pub fn listen_for_activation(on_activate: impl Fn() + Send + 'static) {
         let event_name = wide(ACTIVATE_EVENT);
@@ -133,10 +171,9 @@ mod imp {
     }
 
     pub fn show_main_window() {
-        let title = wide(APP_NAME);
-        // SAFETY: `title` is a valid null-terminated UTF-16 string; a null class matches any.
+        let hwnd = own_window(APP_NAME);
+        // SAFETY: the handle is checked before use.
         unsafe {
-            let hwnd = FindWindowW(std::ptr::null(), title.as_ptr());
             if !hwnd.is_null() {
                 ShowWindow(hwnd, SW_SHOW);
                 ShowWindow(hwnd, SW_RESTORE);
@@ -238,6 +275,28 @@ mod imp {
     const FORTNITE_PROCESS: &str = "FortniteClient-Win64-Shipping.exe";
 
     pub fn fortnite_running() -> bool {
+        fortnite_pid().is_some()
+    }
+
+    /// The process id of the window in front, unless it is this app's own: clicking the
+    /// overlay or the app says nothing about whether the game is in front.
+    pub fn foreground_pid() -> Option<u32> {
+        use windows_sys::Win32::System::Threading::GetCurrentProcessId;
+        use windows_sys::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+        // SAFETY: the handle is checked; the pid pointer lives through the call. No handle
+        // to the other process is opened.
+        unsafe {
+            let hwnd = GetForegroundWindow();
+            let mut pid = 0;
+            if !hwnd.is_null() {
+                GetWindowThreadProcessId(hwnd, &mut pid);
+            }
+            (pid != GetCurrentProcessId()).then_some(pid)
+        }
+    }
+
+    /// The id of Fortnite's game process, from the process list.
+    pub fn fortnite_pid() -> Option<u32> {
         use windows_sys::Win32::Foundation::{CloseHandle, INVALID_HANDLE_VALUE};
         use windows_sys::Win32::System::Diagnostics::ToolHelp::{
             CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
@@ -247,16 +306,16 @@ mod imp {
         unsafe {
             let snapshot = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
             if snapshot == INVALID_HANDLE_VALUE {
-                return false;
+                return None;
             }
             let mut entry: PROCESSENTRY32W = std::mem::zeroed();
             entry.dwSize = std::mem::size_of::<PROCESSENTRY32W>() as u32;
-            let mut found = false;
+            let mut found = None;
             let mut ok = Process32FirstW(snapshot, &mut entry) != 0;
             while ok {
                 let len = entry.szExeFile.iter().position(|&c| c == 0).unwrap_or(entry.szExeFile.len());
                 if String::from_utf16_lossy(&entry.szExeFile[..len]).eq_ignore_ascii_case(FORTNITE_PROCESS) {
-                    found = true;
+                    found = Some(entry.th32ProcessID);
                     break;
                 }
                 ok = Process32NextW(snapshot, &mut entry) != 0;
@@ -271,10 +330,9 @@ mod imp {
         use windows_sys::Win32::UI::WindowsAndMessaging::{
             GetWindowLongW, SetLayeredWindowAttributes, SetWindowLongW, GWL_EXSTYLE, LWA_ALPHA, WS_EX_LAYERED,
         };
-        let title = wide(title);
-        // SAFETY: `title` is a valid null-terminated UTF-16 string; the handle is checked.
+        let hwnd = own_window(title);
+        // SAFETY: the handle is checked before use.
         unsafe {
-            let hwnd = FindWindowW(std::ptr::null(), title.as_ptr());
             if hwnd.is_null() {
                 return false;
             }
@@ -288,12 +346,11 @@ mod imp {
     /// false if the window is not there yet.
     pub fn disable_window_animation(title: &str) -> bool {
         use windows_sys::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_TRANSITIONS_FORCEDISABLED};
-        let title = wide(title);
+        let hwnd = own_window(title);
         let disabled: i32 = 1;
-        // SAFETY: `title` is a valid null-terminated UTF-16 string; the handle is checked;
-        // the attribute value is a BOOL that lives through the call.
+        // SAFETY: the handle is checked; the attribute value is a BOOL that lives through
+        // the call.
         unsafe {
-            let hwnd = FindWindowW(std::ptr::null(), title.as_ptr());
             if hwnd.is_null() {
                 return false;
             }
@@ -319,6 +376,10 @@ mod imp {
         false
     }
     pub fn claim_instance_waiting(_max: std::time::Duration) -> bool {
+        true
+    }
+    pub fn wait_instance_gone(_max: std::time::Duration) {}
+    pub fn main_window_visible() -> bool {
         true
     }
     pub fn reveal_in_explorer(_path: &std::path::Path) -> std::io::Result<()> {
@@ -347,6 +408,12 @@ mod imp {
     pub fn fortnite_running() -> bool {
         false
     }
+    pub fn foreground_pid() -> Option<u32> {
+        None
+    }
+    pub fn fortnite_pid() -> Option<u32> {
+        None
+    }
     pub fn set_window_opacity(_title: &str, _alpha: u8) -> bool {
         false
     }
@@ -359,6 +426,8 @@ pub use imp::*;
 
 /// Autostart argument: wait for Fortnite before opening.
 pub const WAIT_FOR_FORTNITE_ARG: &str = "--wait-for-fortnite";
+/// With `WAIT_FOR_FORTNITE_ARG`: started by a copy going to sleep after the game closed.
+pub const AFTER_SLEEP_ARG: &str = "--after-sleep";
 
 /// The Explorer argument that selects `path`, quoted so spaces survive.
 #[cfg_attr(not(windows), allow(dead_code))]

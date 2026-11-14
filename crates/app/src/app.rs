@@ -8,6 +8,7 @@ use chrono::NaiveDateTime;
 use eframe::egui::{self, ViewportCommand};
 
 use crate::config::Settings;
+use crate::i18n::{tr, trf};
 use crate::store::Store;
 use crate::tray::{Tray, TrayAction};
 use crate::worker::{Command, Event, Worker};
@@ -30,13 +31,13 @@ impl Page {
 
     fn label(self) -> &'static str {
         match self {
-            Page::Overview => "Overview",
-            Page::Matches => "Matches",
-            Page::Stats => "Stats & odds",
-            Page::Map => "Map",
-            Page::Squad => "Squad replays",
-            Page::Leaderboard => "Leaderboard",
-            Page::Settings => "Settings",
+            Page::Overview => tr("Overview"),
+            Page::Matches => tr("Matches"),
+            Page::Stats => tr("Stats & odds"),
+            Page::Map => tr("Map"),
+            Page::Squad => tr("Squad replays"),
+            Page::Leaderboard => tr("Leaderboard"),
+            Page::Settings => tr("Settings"),
         }
     }
 
@@ -85,6 +86,8 @@ pub struct ChestApp {
     pub activity: Activity,
     pub selected_match: Option<String>,
     pub totals: stats::Totals,
+    /// Epic accounts that recorded replays here, the main one first.
+    pub accounts: Vec<stats::Account>,
     pub setup: crate::ui::setup::SetupState,
     pub settings_ui: crate::ui::settings::SettingsUi,
     /// Notes shown in the "What's new" dialog until it is closed.
@@ -106,12 +109,17 @@ pub struct ChestApp {
     quitting: bool,
     tray_status: (String, bool, bool),
     /// Matches Fortnite's log saw end.
-    game_log: Receiver<crate::gamelog::Played>,
+    game_log: Receiver<crate::gamelog::LogEvent>,
+    /// When the game loaded the match the player is in now, from its log.
+    pub match_joined: Option<chrono::DateTime<chrono::Utc>>,
     /// Recorded matches whose replay file should be in the folder by the given time.
     replay_checks: Vec<(std::time::Instant, std::time::SystemTime)>,
     /// A warning was shown and nothing has changed since: not again for every match.
     warned_unrecorded: bool,
     warned_no_file: bool,
+    sleeper: crate::sleep::Sleeper,
+    /// New accounts already announced by a notification this run.
+    asked_accounts: std::collections::HashSet<String>,
 }
 
 pub fn run(start_minimized: bool) -> ExitCode {
@@ -164,6 +172,7 @@ fn set_up_shell(first_run: bool) {
 impl ChestApp {
     fn new(ctx: &egui::Context, start_minimized: bool) -> Self {
         let (mut settings, first_run) = Settings::load_first_run();
+        crate::i18n::set(settings.language);
         std::thread::spawn(move || set_up_shell(first_run));
         if settings.install_id.is_empty() {
             settings.install_id = crate::online::new_install_id();
@@ -171,7 +180,9 @@ impl ChestApp {
         }
         if settings.setup_done && settings.start_with_windows {
             // Point autostart at this executable in case it was moved since setup.
-            let _ = platform::set_autostart(true, settings.start_with_fortnite);
+            if let Err(e) = platform::set_autostart(true, settings.start_with_fortnite) {
+                crate::config::log_event(&format!("could not update autostart: {e}"));
+            }
         }
         let store = Store::load(Store::default_path());
         let (tx, events) = mpsc::channel();
@@ -214,6 +225,7 @@ impl ChestApp {
             activity: Activity::default(),
             selected_match: None,
             totals: stats::Totals::default(),
+            accounts: Vec::new(),
             setup,
             settings_ui,
             whats_new,
@@ -235,24 +247,29 @@ impl ChestApp {
             quitting: false,
             tray_status: Default::default(),
             game_log,
+            match_joined: None,
             replay_checks: Vec::new(),
             warned_unrecorded: false,
             warned_no_file: false,
+            sleeper: Default::default(),
+            asked_accounts: Default::default(),
         };
         app.refresh_totals();
+        app.settle_account();
         #[cfg(debug_assertions)]
         if let Ok(page) = std::env::var("FCC_DEBUG_PAGE") {
             app.page = Page::ALL.into_iter().find(|p| p.label().eq_ignore_ascii_case(&page)).unwrap_or(Page::Overview);
             app.selected_match =
-                app.store.matches.iter().find(|m| m.summary(&app.settings.nick).found).map(|m| m.id.clone());
+                app.store.matches.iter().find(|m| m.summary(app.settings.name_in(m)).found).map(|m| m.id.clone());
         }
         app
     }
 
     /// The configured name, or the recorder of the newest replay when it is automatic.
-    pub fn counted_player(&self) -> String {
+    /// None before any replay.
+    pub fn counted_player(&self) -> Option<String> {
         if !self.settings.nick.trim().is_empty() {
-            return self.settings.nick.clone();
+            return Some(self.settings.nick.clone());
         }
         self.store
             .matches
@@ -260,20 +277,139 @@ impl ChestApp {
             .filter(|m| m.owner.is_some())
             .max_by_key(|m| m.started_at)
             .and_then(|m| m.owner.clone())
-            .unwrap_or_else(|| "you".into())
     }
 
     pub fn refresh_totals(&mut self) {
         self.totals = stats::totals(&self.store.matches, &self.settings);
+        self.accounts = stats::accounts(&self.store.matches);
+    }
+
+    /// Learns which Epic account the player is, from the name they gave or, when it is
+    /// automatic, from most of the replays; then follows that account's and the other
+    /// profiles' renames.
+    fn settle_account(&mut self) {
+        let mut changed = false;
+        if self.settings.account_id.is_empty() {
+            let nick = self.settings.nick.trim();
+            let id = if nick.is_empty() {
+                self.accounts.first().map(|a| a.id.clone())
+            } else {
+                stats::id_of(&self.store.matches, nick)
+            };
+            if let Some(id) = id {
+                crate::config::log_event(&format!("counting for account {id}"));
+                self.settings.account_id = id;
+                changed = true;
+            }
+        }
+        let name_of = |id: &str| self.accounts.iter().find(|a| a.id == id).map(|a| a.name.clone());
+        if let Some(name) = name_of(&self.settings.account_id).filter(|n| *n != self.settings.nick) {
+            crate::config::log_event(&format!("{} is now called {name}", self.settings.nick));
+            self.settings.nick = name;
+            changed = true;
+        }
+        let renamed: Vec<(String, String)> = self
+            .settings
+            .profiles
+            .iter()
+            .filter_map(|(id, p)| Some((id.clone(), name_of(id).filter(|n| *n != p.name)?)))
+            .collect();
+        for (id, name) in renamed {
+            if let Some(p) = self.settings.profiles.get_mut(&id) {
+                p.name = name;
+                changed = true;
+            }
+        }
+        if changed {
+            self.settings_ui = crate::ui::settings::SettingsUi::from_settings(&self.settings);
+            self.apply_settings(false);
+        }
+    }
+
+    /// Shows and counts the account with Epic id `id`, with its own base, start date and
+    /// prizes.
+    pub fn switch_account(&mut self, id: &str) {
+        if id == self.settings.account_id {
+            return;
+        }
+        let name = self
+            .accounts
+            .iter()
+            .find(|a| a.id == id)
+            .map(|a| a.name.clone())
+            .or_else(|| self.settings.profiles.get(id).map(|p| p.name.clone()))
+            .unwrap_or_default();
+        self.settings.switch_account(id, &name);
+        crate::config::log_event(&format!("counting for {}", self.settings.nick));
+        self.settings_ui = crate::ui::settings::SettingsUi::from_settings(&self.settings);
+        self.selected_match = None;
+        self.apply_settings(false);
+        self.online.nudge();
+    }
+
+    /// The first account seen in replays that the player has not said is theirs or not.
+    fn unknown_account(&self) -> Option<&stats::Account> {
+        stats::unknown_account(&self.accounts, &self.settings)
+    }
+
+    /// Asks whether a new account's replays are the player's own.
+    fn ask_about_account(&mut self, ctx: &egui::Context) {
+        let Some(account) = self.unknown_account().cloned() else { return };
+        let mut answer = None;
+        egui::Modal::new(egui::Id::unique("unknown-account")).show(ctx, |ui| {
+            ui.set_max_width(420.0);
+            ui.label(egui::RichText::new(trf("Is {0} your account?", &[&account.name])).heading().color(theme::GOLD));
+            ui.add_space(6.0);
+            let replays =
+                crate::i18n::plural(account.matches as u64, "replay", "replays", ["реплей", "реплея", "реплеев"]);
+            ui.add(
+                egui::Label::new(trf(
+                    "{0} recorded {1} {2} on this PC. If it is your second account, it gets its own total and \
+                     the app switches to it when it plays. If not, its matches are not counted and not sent \
+                     to the server.",
+                    &[&account.name, &account.matches, &replays],
+                ))
+                .wrap(),
+            );
+            ui.add_space(10.0);
+            ui.horizontal(|ui| {
+                if ui.button(egui::RichText::new(tr("Yes, it is mine")).strong()).clicked() {
+                    answer = Some(true);
+                }
+                if ui.button(tr("No, not mine")).clicked() {
+                    answer = Some(false);
+                }
+            });
+        });
+        match answer {
+            Some(true) => {
+                crate::config::log_event(&format!("{} is the player's account too", account.name));
+                let played_last = self.accounts.iter().all(|a| a.last <= account.last);
+                self.settings
+                    .profiles
+                    .insert(account.id.clone(), crate::config::Profile { name: account.name, ..Default::default() });
+                if played_last {
+                    self.switch_account(&account.id);
+                } else {
+                    self.apply_settings(false);
+                }
+            }
+            Some(false) => {
+                crate::config::log_event(&format!("{} is not the player's account", account.name));
+                self.settings.not_mine.push(account.id);
+                self.apply_settings(false);
+            }
+            None => {}
+        }
     }
 
     /// Persists settings and hands them to the worker. Optionally triggers a scan.
     pub fn apply_settings(&mut self, scan: bool) {
         if let Err(e) = self.settings.save() {
-            self.activity.push_log(format!("Could not save settings: {e}"));
+            self.activity.push_log(trf("Could not save settings: {0}", &[&e]));
         }
         if let Err(e) = platform::set_autostart(self.settings.start_with_windows, self.settings.start_with_fortnite) {
-            self.activity.push_log(format!("Could not update autostart: {e}"));
+            self.activity.push_log(trf("Could not update autostart: {0}", &[&e]));
         }
         self.worker.send(Command::Settings(Box::new(self.settings.clone())));
         if scan {
@@ -284,7 +420,7 @@ impl ChestApp {
 
     pub fn save_store(&mut self) {
         if let Err(e) = self.store.save() {
-            self.activity.push_log(format!("Could not save matches: {e}"));
+            self.activity.push_log(trf("Could not save matches: {0}", &[&e]));
         }
         self.refresh_totals();
     }
@@ -295,39 +431,55 @@ impl ChestApp {
             match event {
                 Event::Progress { file, fraction, queued } => self.activity.progress = Some((file, fraction, queued)),
                 Event::Analyzed { record, .. } if self.is_teammates(&record) => {
-                    self.activity.push_log(format!(
-                        "{}: recorded by {}, added to Squad replays",
-                        record.file_name,
-                        record.owner.as_deref().unwrap_or("a teammate")
+                    self.activity.push_log(trf(
+                        "{0}: recorded by {1}, added to Squad replays",
+                        &[&record.file_name, &record.owner.as_deref().unwrap_or(tr("a teammate"))],
                     ));
                     self.store.add_squad_replay(*record);
                     self.activity.progress = None;
                     changed = true;
                 }
                 Event::SquadAnalyzed { record } => {
-                    self.activity.push_log(format!(
-                        "{}: teammate replay by {}",
-                        record.file_name,
-                        record.owner.as_deref().unwrap_or("unknown")
+                    self.activity.push_log(trf(
+                        "{0}: teammate replay by {1}",
+                        &[&record.file_name, &record.owner.as_deref().unwrap_or(tr("unknown"))],
                     ));
                     self.store.add_squad_replay(*record);
                     self.activity.progress = None;
                     changed = true;
                 }
                 Event::Analyzed { record, from_watch } => {
-                    let summary = record.summary(&self.settings.nick);
-                    self.activity.push_log(format!(
-                        "{}: opened {}, broke {}, teammates {}",
-                        record.file_name, summary.opened, summary.broken, summary.mates
+                    if let Some(id) = record.recorder_id().filter(|_| from_watch).map(str::to_owned) {
+                        if self.settings.profiles.contains_key(&id) {
+                            // Another of the player's accounts just played: show and count that one.
+                            self.switch_account(&id);
+                        } else if !self.settings.account_id.is_empty()
+                            && !self.settings.knows_account(&id)
+                            && self.asked_accounts.insert(id)
+                            && !platform::main_window_visible()
+                        {
+                            let name = record.owner.as_deref().unwrap_or("?");
+                            platform::notify(
+                                &trf("Is {0} your account?", &[&name]),
+                                tr("Open Chest Counter to say whether this account is yours. Until then its matches are not counted."),
+                            );
+                        }
+                    }
+                    let summary = record.summary(self.settings.name_in(&record));
+                    self.activity.push_log(trf(
+                        "{0}: opened {1}, broke {2}, teammates {3}",
+                        &[&record.file_name, &summary.opened, &summary.broken, &summary.mates],
                     ));
                     if record.packet_health < 0.97 {
-                        self.activity.push_log(format!(
-                            "{}: only {:.1}% of packets decoded; a Fortnite update may have changed the replay format",
-                            record.file_name,
-                            record.packet_health * 100.0
+                        self.activity.push_log(trf(
+                            "{0}: only {1}% of packets decoded; a Fortnite update may have changed the replay format",
+                            &[&record.file_name, &format!("{:.1}", record.packet_health * 100.0)],
                         ));
                     }
-                    let notify = from_watch && self.settings.notifications && self.settings.counts(record.started_at);
+                    let notify = from_watch
+                        && self.settings.notifications
+                        && self.settings.counts(record.started_at)
+                        && self.settings.owns(&record);
                     self.store.upsert(*record);
                     self.online.nudge();
                     self.activity.progress = None;
@@ -335,25 +487,27 @@ impl ChestApp {
                     if notify {
                         self.refresh_totals();
                         let body = if summary.found {
-                            format!(
-                                "You: +{} (opened {}, broke {}) · squad +{}+{}\nTotal: {} · squad {}+",
-                                summary.mine(),
-                                summary.opened,
-                                summary.broken,
-                                summary.mates,
-                                match summary.treasures {
-                                    0 => String::new(),
-                                    n => format!(" · treasure +{n}"),
-                                },
-                                theme::thousands(self.totals.mine()),
-                                theme::thousands(self.totals.teammates as u64)
+                            trf(
+                                "You: +{0} (opened {1}, broke {2}) · squad +{3}+{4}\nTotal: {5} · squad {6}+",
+                                &[
+                                    &summary.mine(),
+                                    &summary.opened,
+                                    &summary.broken,
+                                    &summary.mates,
+                                    &match summary.treasures {
+                                        0 => String::new(),
+                                        n => trf(" · treasure +{0}", &[&n]),
+                                    },
+                                    &theme::thousands(self.totals.mine()),
+                                    &theme::thousands(self.totals.teammates as u64),
+                                ],
                             )
                         } else if self.settings.nick.trim().is_empty() {
-                            "Could not tell who recorded this replay.".to_string()
+                            tr("Could not tell who recorded this replay.").to_string()
                         } else {
-                            format!("{} was not found in this match. Check your name in Settings.", self.settings.nick)
+                            trf("{0} was not found in this match.", &[&self.settings.nick])
                         };
-                        platform::notify("Match counted", &body);
+                        platform::notify(tr("Match counted"), &body);
                     }
                 }
                 Event::Failed { file, error } => {
@@ -370,6 +524,7 @@ impl ChestApp {
         }
         if changed {
             self.save_store();
+            self.settle_account();
             ctx.request_repaint();
         }
     }
@@ -404,17 +559,54 @@ impl ChestApp {
                 }
             }
         }
-        let status = format!(
-            "{APP_NAME}\nChests: {} · squad {}+{}",
-            theme::thousands(self.totals.mine()),
-            theme::thousands(self.totals.teammates as u64),
-            if self.settings.watch { "" } else { "\nWatching paused" }
+        let status = trf(
+            "{0}\nChests: {1} · squad {2}+{3}",
+            &[
+                &APP_NAME,
+                &theme::thousands(self.totals.mine()),
+                &theme::thousands(self.totals.teammates as u64),
+                &if self.settings.watch { String::new() } else { format!("\n{}", tr("Watching paused")) },
+            ],
         );
         let state = (status, self.settings.watch, self.settings.overlay.enabled);
         if let Some(tray) = &self.tray {
             if state != self.tray_status {
                 tray.set_status(&state.0, state.1, state.2);
                 self.tray_status = state;
+            }
+        }
+    }
+
+    /// In "start when Fortnite starts" mode, hands over to a copy that waits for the next
+    /// game once this one is over and counted.
+    fn process_sleep(&mut self, ctx: &egui::Context) {
+        use crate::sleep::CHECK_EVERY;
+        let s = &self.settings;
+        if !(s.setup_done && s.start_with_windows && s.start_with_fortnite && self.tray.is_some()) || self.quitting {
+            return;
+        }
+        ctx.request_repaint_after(CHECK_EVERY);
+        let now = std::time::Instant::now();
+        if self.sleeper.checked_at.is_some_and(|at| now.duration_since(at) < CHECK_EVERY) {
+            return;
+        }
+        self.sleeper.checked_at = Some(now);
+        let counting = self.activity.progress.is_some();
+        if !self.sleeper.observe(platform::fortnite_running(), now, counting, platform::main_window_visible()) {
+            return;
+        }
+        let spawned = std::env::current_exe().and_then(|exe| {
+            std::process::Command::new(exe).args([platform::WAIT_FOR_FORTNITE_ARG, platform::AFTER_SLEEP_ARG]).spawn()
+        });
+        match spawned {
+            Ok(_) => {
+                crate::config::log_event("Fortnite closed, going back to waiting for it");
+                self.quitting = true;
+                ctx.send_viewport_cmd(ViewportCommand::Close);
+            }
+            Err(e) => {
+                crate::config::log_event(&format!("could not start the waiting copy, staying: {e}"));
+                self.sleeper = crate::sleep::Sleeper::default();
             }
         }
     }
@@ -441,10 +633,10 @@ impl ChestApp {
             return;
         }
         if self.page == Page::Squad {
-            self.activity.push_log(format!("Analyzing {} teammate replay(s)", paths.len()));
+            self.activity.push_log(trf("Analyzing {0} teammate replay(s)", &[&paths.len()]));
             self.worker.send(Command::AnalyzeSquad(paths));
         } else {
-            self.activity.push_log(format!("Analyzing {} dropped item(s)", paths.len()));
+            self.activity.push_log(trf("Analyzing {0} dropped item(s)", &[&paths.len()]));
             self.worker.send(Command::Analyze(paths));
         }
     }
@@ -469,6 +661,9 @@ impl ChestApp {
     /// already has: it belongs with the squad replays, not the user's matches.
     fn is_teammates(&self, record: &crate::record::MatchRecord) -> bool {
         let (Some(owner), Some(id)) = (record.owner.as_deref(), record.match_id.as_deref()) else { return false };
+        if record.recorder_id().is_some_and(|r| self.settings.my_accounts().any(|a| a == r)) {
+            return false;
+        }
         let Some(me) = self.usual_player() else { return false };
         !chests::same_name(owner, &me)
             && self.store.matches.iter().any(|m| m.match_id.as_deref() == Some(id) && m.id != record.id)
@@ -479,7 +674,17 @@ impl ChestApp {
     fn process_game_log(&mut self, ctx: &egui::Context) {
         /// Fortnite finishes the replay when the player is back in the lobby.
         const FILE_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
-        while let Ok(played) = self.game_log.try_recv() {
+        while let Ok(event) = self.game_log.try_recv() {
+            let played = match event {
+                crate::gamelog::LogEvent::Joined(at) => {
+                    self.match_joined = Some(at);
+                    continue;
+                }
+                crate::gamelog::LogEvent::Left(played) => {
+                    self.match_joined = None;
+                    played
+                }
+            };
             if !played.missed_replay() {
                 // A recorded Battle Royale match: its replay should show up in the folder.
                 if played.recorded && played.records_replays() && played.long_enough() {
@@ -491,13 +696,14 @@ impl ChestApp {
                 }
                 continue;
             }
-            self.activity.push_log("Fortnite did not record the last match, so its chests cannot be counted".into());
+            self.activity
+                .push_log(tr("Fortnite did not record the last match, so its chests cannot be counted").into());
             if self.settings.warn_unrecorded && !self.warned_unrecorded {
                 self.warned_unrecorded = true;
                 platform::notify(
-                    "Your last match was not recorded",
-                    "Fortnite saved no replay, so its chests can't be counted. In Fortnite turn on \
-                     Settings > Game > Replays > Record Replays.",
+                    tr("Your last match was not recorded"),
+                    tr("Fortnite saved no replay, so its chests can't be counted. In Fortnite turn on \
+                        Settings > Game > Replays > Record Replays."),
                 );
             }
         }
@@ -512,12 +718,15 @@ impl ChestApp {
                 continue;
             }
             let dir = self.settings.replay_dir.display().to_string();
-            self.activity.push_log(format!("Fortnite recorded the last match, but its replay is not in {dir}"));
+            self.activity.push_log(trf("Fortnite recorded the last match, but its replay is not in {0}", &[&dir]));
             if self.settings.warn_unrecorded && !self.warned_no_file {
                 self.warned_no_file = true;
                 platform::notify(
-                    "Replay not found",
-                    &format!("Fortnite recorded your last match, but it isn't in {dir}. Check the replay folder in Settings > Replays."),
+                    tr("Replay not found"),
+                    &trf(
+                        "Fortnite recorded your last match, but it isn't in {0}. Check the replay folder in Settings > Replays.",
+                        &[&dir],
+                    ),
                 );
             }
         }
@@ -527,12 +736,13 @@ impl ChestApp {
     /// when it is switched off.
     fn process_online(&mut self, ctx: &egui::Context) {
         let enabled = self.settings.online && self.settings.setup_done;
+        let accounts: Vec<&str> = self.settings.my_accounts().collect();
         let changed = self.online.tick(
             enabled,
             &self.store.matches,
             &self.settings.install_id,
-            self.totals.mine(),
-            !self.settings.leaderboard_name,
+            &accounts,
+            (self.totals.mine(), !self.settings.leaderboard_name),
         );
         if changed || enabled != self.online_shown {
             self.online_shown = enabled;
@@ -557,7 +767,7 @@ impl ChestApp {
                             self.update.available = release;
                             self.update.error = None;
                         }
-                        Err(e) => self.update.error = Some(format!("Could not check for updates: {e}")),
+                        Err(e) => self.update.error = Some(trf("Could not check for updates: {0}", &[&e])),
                     }
                 }
                 Update::Progress(p) => self.update.installing = Some(p),
@@ -571,13 +781,13 @@ impl ChestApp {
                         Err(e) => {
                             self.update.installing = None;
                             self.update.error =
-                                Some(format!("The update is installed; start the app again to use it ({e})."));
+                                Some(trf("The update is installed; start the app again to use it ({0}).", &[&e]));
                         }
                     }
                 }
                 Update::Failed(e) => {
                     self.update.installing = None;
-                    self.update.error = Some(format!("Update failed: {e}"));
+                    self.update.error = Some(trf("Update failed: {0}", &[&e]));
                 }
             }
         }
@@ -595,7 +805,7 @@ impl ChestApp {
         let width = if narrow { NAV_NARROW - 16.0 } else { NAV_WIDE - 28.0 };
         if let Some(p) = self.update.installing {
             if !narrow {
-                ui.label(theme::caption("Updating..."));
+                ui.label(theme::caption(tr("Updating...")));
             }
             ui.add(egui::ProgressBar::new(p).desired_width(width).show_percentage());
         } else if let Some(release) = &self.update.available {
@@ -603,10 +813,10 @@ impl ChestApp {
             let text = if narrow {
                 theme::icon_text(theme::icon::DOWNLOAD, "Up", 16.0)
             } else {
-                egui::RichText::new(format!("Update to v{version}")).strong()
+                egui::RichText::new(trf("Update to v{0}", &[&version])).strong()
             };
             let button = egui::Button::new(text.color(theme::BG)).fill(theme::GOLD);
-            let hint = format!("Update to v{version}: downloads it from GitHub and restarts");
+            let hint = trf("Update to v{0}: downloads it from GitHub and restarts", &[&version]);
             if ui.add_sized([width, 30.0], button).on_hover_text(hint).clicked() {
                 self.install_update();
             }
@@ -623,20 +833,22 @@ impl ChestApp {
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let toggle = egui::Button::new(theme::icon_text(theme::icon::MENU, "=", 16.0)).frame(false);
-                    let hint = if narrow { "Show the menu" } else { "Fold the menu to icons" };
+                    let hint = if narrow { tr("Show the menu") } else { tr("Fold the menu to icons") };
                     if ui.add_sized([NAV_NARROW - 16.0, 28.0], toggle).on_hover_text(hint).clicked() {
                         self.settings.compact_nav = !narrow;
                         let _ = self.settings.save();
                     }
                     if !narrow {
-                        ui.label(egui::RichText::new("Chest Counter").size(15.0).strong().color(theme::GOLD));
+                        ui.label(egui::RichText::new(tr("Chest Counter")).size(15.0).strong().color(theme::GOLD));
                     }
                 });
                 ui.add_space(10.0);
+                self.account_switcher(ui, narrow);
                 for page in Page::ALL {
                     let selected = self.page == page;
                     let color = if selected { theme::GOLD } else { theme::TEXT };
-                    let icon = theme::icon_text(page.icon(), &page.label()[..1], 16.0).color(color);
+                    let letter: String = page.label().chars().take(1).collect();
+                    let icon = theme::icon_text(page.icon(), &letter, 16.0).color(color);
                     let response = if narrow {
                         ui.add_sized([NAV_NARROW - 16.0, 34.0], egui::Button::selectable(selected, icon))
                             .on_hover_text(page.label())
@@ -661,12 +873,49 @@ impl ChestApp {
             });
     }
 
+    /// Which Epic account is shown, when more than one plays on this PC.
+    fn account_switcher(&mut self, ui: &mut egui::Ui, narrow: bool) {
+        if self.settings.profiles.is_empty() || self.settings.account_id.is_empty() {
+            return;
+        }
+        let current = self.settings.nick.clone();
+        let mut all: Vec<(String, String)> = vec![(self.settings.account_id.clone(), current.clone())];
+        all.extend(self.settings.profiles.iter().map(|(id, p)| (id.clone(), p.name.clone())));
+        let active = self.settings.account_id.clone();
+        let mut pick = None;
+        let list = |ui: &mut egui::Ui, pick: &mut Option<String>| {
+            for (id, name) in &all {
+                if ui.selectable_label(*id == active, name).clicked() {
+                    *pick = Some(id.clone());
+                }
+            }
+        };
+        let hint = tr("Accounts that play on this PC. Each has its own total, matches and settings; \
+                       the app switches by itself to the one that played last.");
+        if narrow {
+            let letter: String = current.chars().take(1).collect();
+            let icon = theme::icon_text(theme::icon::ACCOUNT, &letter, 16.0);
+            ui.menu_button(icon, |ui| list(ui, &mut pick)).response.on_hover_text(format!("{current}\n\n{hint}"));
+        } else {
+            egui::ComboBox::from_id_salt("account")
+                .width(NAV_WIDE - 16.0)
+                .selected_text(&current)
+                .show_ui(ui, |ui| list(ui, &mut pick))
+                .response
+                .on_hover_text(hint);
+        }
+        ui.add_space(8.0);
+        if let Some(name) = pick {
+            self.switch_account(&name);
+        }
+    }
+
     fn activity_badge(&self, ui: &mut egui::Ui, narrow: bool) {
         let width = if narrow { NAV_NARROW - 16.0 } else { NAV_WIDE - 28.0 };
         if let Some((file, fraction, queued)) = &self.activity.progress {
             let bar = ui.add(egui::ProgressBar::new(*fraction).desired_width(width));
-            let more = if *queued > 0 { format!(" (+{queued} queued)") } else { String::new() };
-            let text = format!("Analyzing {}{more}", short_name(file));
+            let more = if *queued > 0 { trf(" (+{0} queued)", &[queued]) } else { String::new() };
+            let text = trf("Analyzing {0}{1}", &[&short_name(file), &more]);
             if narrow {
                 bar.on_hover_text(text);
             } else {
@@ -675,21 +924,21 @@ impl ChestApp {
         } else if narrow {
             // A dot: green while a match is played, gold while watching, red when paused.
             let (color, hint) = if self.activity.live_matches > 0 {
-                (theme::OPENED, "Match in progress")
+                (theme::OPENED, tr("Match in progress"))
             } else if self.settings.watch {
-                (theme::GOLD, "Watching for new matches")
+                (theme::GOLD, tr("Watching for new matches"))
             } else {
-                (theme::WARN, "Watching paused")
+                (theme::WARN, tr("Watching paused"))
             };
             let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 14.0), egui::Sense::hover());
             ui.painter().circle_filled(rect.center(), 4.0, color);
             response.on_hover_text(hint);
         } else if self.activity.live_matches > 0 {
-            ui.label(egui::RichText::new("Match in progress").color(theme::OPENED).size(12.5));
+            ui.label(egui::RichText::new(tr("Match in progress")).color(theme::OPENED).size(12.5));
         } else if self.settings.watch {
-            ui.label(theme::caption("Watching for new matches"));
+            ui.label(theme::caption(tr("Watching for new matches")));
         } else {
-            ui.label(egui::RichText::new("Watching paused").color(theme::WARN).size(12.5));
+            ui.label(egui::RichText::new(tr("Watching paused")).color(theme::WARN).size(12.5));
         }
     }
 }
@@ -711,6 +960,7 @@ impl eframe::App for ChestApp {
         self.process_online(ctx);
         self.process_game_log(ctx);
         self.handle_close(ctx);
+        self.process_sleep(ctx);
         self.handle_dropped_files(ctx);
         crate::overlay::update(self, ctx);
         crate::stream::update(self);
@@ -740,6 +990,8 @@ impl eframe::App for ChestApp {
                 self.settings.notes_seen = current;
                 let _ = self.settings.save();
             }
+        } else if self.whats_new.is_empty() && self.settings.setup_done {
+            self.ask_about_account(ui.ctx());
         }
     }
 

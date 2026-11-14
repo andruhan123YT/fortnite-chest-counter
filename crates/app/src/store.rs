@@ -16,6 +16,17 @@ struct StoreFile {
     matches: Vec<MatchRecord>,
     #[serde(default)]
     squad_replays: Vec<MatchRecord>,
+    #[serde(default)]
+    removed: Vec<Removed>,
+}
+
+/// A replay the player removed from the list. Fortnite keeps it in the replay folder,
+/// so the app remembers to leave it out.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Removed {
+    pub id: String,
+    pub file_name: String,
+    pub file_size: u64,
 }
 
 /// `StoreFile` by reference, so saving does not copy every match.
@@ -24,6 +35,7 @@ struct StoreFileRef<'a> {
     version: u32,
     matches: &'a [MatchRecord],
     squad_replays: &'a [MatchRecord],
+    removed: &'a [Removed],
 }
 
 #[derive(Debug, Default)]
@@ -34,6 +46,7 @@ pub struct Store {
     /// Matches as recorded by teammates, added by hand. Never counted on their own: they
     /// only fill in players in the user's match with the same match id.
     pub squad_replays: Vec<MatchRecord>,
+    removed: Vec<Removed>,
     /// Squadmates' own counts from the sync server, for every match. Kept by the online
     /// mode in its own file; empty while it is off.
     online: Vec<crate::online::Found>,
@@ -60,7 +73,13 @@ impl Store {
 
     pub fn load(path: PathBuf) -> Self {
         let file = load_json::<StoreFile>(&path).value;
-        let mut store = Self { path, matches: file.matches, squad_replays: file.squad_replays, online: Vec::new() };
+        let mut store = Self {
+            path,
+            matches: file.matches,
+            squad_replays: file.squad_replays,
+            removed: file.removed,
+            online: Vec::new(),
+        };
         store.sort();
         store.link();
         store
@@ -69,7 +88,12 @@ impl Store {
     pub fn save(&self) -> std::io::Result<()> {
         write_json_atomically(
             &self.path,
-            &StoreFileRef { version: 1, matches: &self.matches, squad_replays: &self.squad_replays },
+            &StoreFileRef {
+                version: 1,
+                matches: &self.matches,
+                squad_replays: &self.squad_replays,
+                removed: &self.removed,
+            },
         )
     }
 
@@ -149,7 +173,10 @@ impl Store {
         self.matches.sort_by(|a, b| b.started_at.cmp(&a.started_at).then_with(|| b.file_name.cmp(&a.file_name)));
     }
 
+    /// Adds or replaces a match. One the player removed comes back only when analyzed on
+    /// purpose, which is the only way it gets here again.
     pub fn upsert(&mut self, record: MatchRecord) {
+        self.removed.retain(|r| r.id != record.id);
         self.matches.retain(|m| m.id != record.id);
         self.matches.push(record);
         self.sort();
@@ -157,12 +184,20 @@ impl Store {
     }
 
     pub fn remove(&mut self, id: &str) {
+        if let Some(m) = self.matches.iter().find(|m| m.id == id) {
+            self.removed.push(Removed { id: m.id.clone(), file_name: m.file_name.clone(), file_size: m.file_size });
+        }
         self.matches.retain(|m| m.id != id);
     }
 
     /// `(file name, size)` of every replay already analyzed with the current analyzer.
+    /// Removed replays count as analyzed by every version, so the scan leaves them out.
     pub fn known_files(&self) -> HashMap<(String, u64), u32> {
-        self.matches.iter().map(|m| ((m.file_name.clone(), m.file_size), m.analyzer_version)).collect()
+        self.matches
+            .iter()
+            .map(|m| ((m.file_name.clone(), m.file_size), m.analyzer_version))
+            .chain(self.removed.iter().map(|r| ((r.file_name.clone(), r.file_size), u32::MAX)))
+            .collect()
     }
 }
 
@@ -341,5 +376,32 @@ mod tests {
         store.add_squad_replay(copy.clone());
         assert_eq!(store.matches[0].summary("").mine(), 2);
         assert_eq!(store.squad_link(&copy), SquadLink::Own);
+    }
+
+    #[test]
+    fn removed_replays_survive_a_restart() {
+        let path = std::env::temp_dir().join(format!("fcc-store-removed-{}.json", std::process::id()));
+        let mut store = Store::load(path.clone());
+        store.upsert(record("r", "a.replay"));
+        store.upsert(record("k", "b.replay"));
+        store.remove("r");
+        store.save().unwrap();
+        let again = Store::load(path.clone());
+        assert_eq!(again.matches.len(), 1);
+        assert_eq!(again.known_files().get(&("a.replay".to_string(), 10)), Some(&u32::MAX));
+        let _ = std::fs::remove_file(&path);
+        let _ = std::fs::remove_file(path.with_extension("json.bak"));
+    }
+
+    #[test]
+    fn a_removed_replay_stays_out_until_analyzed_on_purpose() {
+        let mut store = Store::default();
+        store.upsert(record("r", "a.replay"));
+        store.remove("r");
+        assert!(store.matches.is_empty());
+        let size = record("r", "a.replay").file_size;
+        assert_eq!(store.known_files().get(&("a.replay".to_string(), size)), Some(&u32::MAX));
+        store.upsert(record("r", "a.replay"));
+        assert_eq!(store.known_files().get(&("a.replay".to_string(), size)), Some(&ANALYZER_VERSION));
     }
 }

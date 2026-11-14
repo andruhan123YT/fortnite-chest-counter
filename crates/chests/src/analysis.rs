@@ -240,6 +240,9 @@ pub fn analyze_replay<V: fnreplay::Visitor>(
         fn on_despawn(&mut self, d: &fnreplay::ActorDespawn<'_>) {
             self.collected.on_despawn(d);
         }
+        fn on_actor_spawn(&mut self, s: &fnreplay::ActorSpawn<'_>) {
+            self.collected.on_actor_spawn(s);
+        }
         fn on_progress(&mut self, fraction: f32) {
             self.outer.on_progress(fraction);
         }

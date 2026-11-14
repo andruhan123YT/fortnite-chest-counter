@@ -40,10 +40,10 @@ impl OverlayCorner {
 
     pub fn label(self) -> &'static str {
         match self {
-            Self::TopLeft => "Top left",
-            Self::TopRight => "Top right",
-            Self::BottomLeft => "Bottom left",
-            Self::BottomRight => "Bottom right",
+            Self::TopLeft => crate::i18n::tr("Top left"),
+            Self::TopRight => crate::i18n::tr("Top right"),
+            Self::BottomLeft => crate::i18n::tr("Bottom left"),
+            Self::BottomRight => crate::i18n::tr("Bottom right"),
         }
     }
 }
@@ -54,6 +54,8 @@ pub struct OverlaySettings {
     pub enabled: bool,
     /// Hide the overlay while Fortnite is not running.
     pub only_with_fortnite: bool,
+    /// Hide the overlay while another window is in front of Fortnite.
+    pub only_over_fortnite: bool,
     pub corner: OverlayCorner,
     /// Top left corner in screen points where the player dragged the overlay. Replaces
     /// `corner` while set.
@@ -69,6 +71,7 @@ impl Default for OverlaySettings {
         Self {
             enabled: false,
             only_with_fortnite: true,
+            only_over_fortnite: true,
             corner: OverlayCorner::TopRight,
             position: None,
             opacity: 0.85,
@@ -81,6 +84,19 @@ impl ArchiveSettings {
     pub fn max_bytes(&self) -> u64 {
         (f64::from(self.max_gb) * 1024.0 * 1024.0 * 1024.0) as u64
     }
+}
+
+/// What is counted for one Epic account. The active account's values live in `Settings`
+/// itself; the others wait in `Settings::profiles` until switched to.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct Profile {
+    /// The account's name in its newest replay.
+    pub name: String,
+    pub base_count: u64,
+    pub adjustment: i64,
+    pub count_since: Option<NaiveDateTime>,
+    pub received: BTreeMap<String, u32>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -130,6 +146,15 @@ pub struct Settings {
     pub stream: crate::stream::StreamSettings,
     /// The version whose "What's new" notes the player last closed.
     pub notes_seen: String,
+    /// Epic id of the active account, whose newest name is `nick`. Empty until a replay
+    /// shows which account the player is.
+    pub account_id: String,
+    /// The other Epic accounts the player said are theirs, by Epic id.
+    pub profiles: BTreeMap<String, Profile>,
+    /// Epic ids of replay authors the player said are not theirs: their matches are
+    /// neither counted nor sent.
+    pub not_mine: Vec<String>,
+    pub language: crate::i18n::Lang,
 }
 
 impl Default for Settings {
@@ -161,6 +186,10 @@ impl Default for Settings {
             install_id: String::new(),
             stream: Default::default(),
             notes_seen: String::new(),
+            account_id: String::new(),
+            profiles: BTreeMap::new(),
+            not_mine: Vec::new(),
+            language: crate::i18n::Lang::En,
         }
     }
 }
@@ -181,6 +210,65 @@ impl Settings {
         write_json_atomically(&settings_path(), self)
     }
 
+    fn profile(&self) -> Profile {
+        Profile {
+            name: self.nick.clone(),
+            base_count: self.base_count,
+            adjustment: self.adjustment,
+            count_since: self.count_since,
+            received: self.received.clone(),
+        }
+    }
+
+    /// Counts for the account with Epic id `id`, named `name`, from now on, keeping the
+    /// current one's base, start date, edits and prizes for when it comes back. A new
+    /// account starts from zero with every match.
+    pub fn switch_account(&mut self, id: &str, name: &str) {
+        if id.is_empty() || id == self.account_id {
+            return;
+        }
+        if !self.account_id.is_empty() {
+            self.profiles.insert(self.account_id.clone(), self.profile());
+        }
+        let next = self.profiles.remove(id).unwrap_or_default();
+        self.base_count = next.base_count;
+        self.adjustment = next.adjustment;
+        self.count_since = next.count_since;
+        self.received = next.received;
+        self.nick = name.to_owned();
+        self.account_id = id.to_owned();
+        self.not_mine.retain(|n| n != id);
+    }
+
+    /// The player's own accounts on this PC, the active one first.
+    pub fn my_accounts(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.account_id.as_str())
+            .filter(|id| !id.is_empty())
+            .chain(self.profiles.keys().map(String::as_str))
+    }
+
+    /// The player already said whether the account `id` is theirs.
+    pub fn knows_account(&self, id: &str) -> bool {
+        self.my_accounts().any(|a| a == id) || self.not_mine.iter().any(|n| n == id)
+    }
+
+    /// The active account recorded the match: by Epic id when both are known, otherwise
+    /// by name, as with replays from before ids were read.
+    pub fn owns(&self, m: &crate::record::MatchRecord) -> bool {
+        match m.recorder_id() {
+            Some(id) if !self.account_id.is_empty() => id == self.account_id,
+            _ => m.recorded_by(&self.nick),
+        }
+    }
+
+    /// The name the active account played the match under: names change, ids do not.
+    pub fn name_in<'a>(&'a self, m: &'a crate::record::MatchRecord) -> &'a str {
+        match (m.recorder_id(), m.owner.as_deref()) {
+            (Some(id), Some(owner)) if !self.account_id.is_empty() && id == self.account_id => owner,
+            _ => &self.nick,
+        }
+    }
+
     pub fn counts(&self, started_at: Option<NaiveDateTime>) -> bool {
         match (self.count_since, started_at) {
             (None, _) => true,
@@ -191,6 +279,11 @@ impl Settings {
 }
 
 pub fn data_dir() -> PathBuf {
+    // Debug builds can run on a copy of the data, next to the real app.
+    #[cfg(debug_assertions)]
+    if let Some(dir) = std::env::var_os("FCC_DATA_DIR") {
+        return PathBuf::from(dir);
+    }
     dirs::config_dir().unwrap_or_else(std::env::temp_dir).join(APP_NAME)
 }
 

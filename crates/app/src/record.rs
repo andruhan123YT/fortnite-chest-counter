@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::cli::mmss;
 
 /// Bump when the analysis changes in a way that makes stored results stale.
-pub const ANALYZER_VERSION: u32 = 11;
+pub const ANALYZER_VERSION: u32 = 12;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct MatchRecord {
@@ -156,6 +156,12 @@ impl MatchRecord {
         self.players.iter().filter(move |p| !replaced(p)).chain(self.fuller.iter())
     }
 
+    /// The replay was recorded by the account `nick`: always true when the name is
+    /// automatic or the recorder is unknown.
+    pub fn recorded_by(&self, nick: &str) -> bool {
+        nick.trim().is_empty() || self.owner.as_deref().is_none_or(|owner| same_name(owner, nick))
+    }
+
     /// The name to count for: the configured one, or the replay's recorder when it is empty.
     pub fn player_name<'a>(&'a self, nick: &'a str) -> &'a str {
         if nick.trim().is_empty() {
@@ -211,6 +217,11 @@ impl MatchRecord {
         self.players.iter().find(|p| same_name(&p.name, owner))
     }
 
+    /// The Epic id of the account that recorded the replay.
+    pub fn recorder_id(&self) -> Option<&str> {
+        self.recorder()?.epic_id.as_deref().filter(|id| !id.is_empty())
+    }
+
     /// Prizes of the counted player. Only the recorder's are in a replay.
     pub fn treasures(&self, nick: &str) -> &[Treasure] {
         let nick = self.player_name(nick);
@@ -237,9 +248,9 @@ impl MatchRecord {
     /// What [`Self::clock`] counts from.
     pub fn clock_origin(&self) -> &'static str {
         if self.bus_launch.is_some() {
-            "from the bus launch"
+            crate::i18n::tr("from the bus launch")
         } else {
-            "from the start of the recording"
+            crate::i18n::tr("from the start of the recording")
         }
     }
 

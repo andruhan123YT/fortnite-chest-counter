@@ -4,6 +4,7 @@ use chests::odds::{any_reward_rate, chance_at_least_one, PIRATE_SHOP_ACCESS};
 use eframe::egui::{self, RichText};
 
 use crate::app::{short_name, ChestApp, Page};
+use crate::i18n::{date_format, plural, tr, trf};
 use crate::theme;
 use crate::worker::Command;
 
@@ -21,7 +22,7 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
     }
     let shown = area.show(ui, |ui| {
         ui.horizontal(|ui| {
-            ui.label(theme::title("Overview"));
+            ui.label(theme::title(tr("Overview")));
             ui.add(egui::Label::new(theme::caption(counting_note(app))).truncate());
         });
         ui.add_space(8.0);
@@ -51,17 +52,18 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
 /// The total, and the last match next to it.
 fn hero(app: &ChestApp, ui: &mut egui::Ui) {
     let t = &app.totals;
-    let last = app.store.matches.first().map(|m| m.summary(&app.settings.nick).mine());
+    let last =
+        crate::stats::own(&app.store.matches, &app.settings).next().map(|m| m.summary(app.settings.name_in(m)).mine());
     theme::card().show(ui, |ui| {
         ui.set_width(ui.available_width());
-        ui.label(theme::caption("CHESTS"));
+        ui.label(theme::caption(tr("CHESTS")));
         ui.horizontal(|ui| {
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 ui.label(
                     RichText::new(theme::thousands(t.mine())).font(theme::font(theme::BOLD, 40.0)).color(theme::GOLD),
                 );
-                ui.label(theme::caption("in total"));
+                ui.label(theme::caption(tr("in total")));
             });
             ui.add_space(10.0);
             ui.separator();
@@ -70,20 +72,23 @@ fn hero(app: &ChestApp, ui: &mut egui::Ui) {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let value = last.map_or_else(|| "-".to_string(), |n| n.to_string());
                 ui.label(RichText::new(value).font(theme::font(theme::BOLD, 40.0)).color(theme::TEXT));
-                ui.label(theme::caption("last match"));
+                ui.label(theme::caption(tr("last match")));
             });
         });
         let by_hand = if t.adjustment == 0 {
             String::new()
         } else {
-            format!(" · by hand {}", crate::ui::settings::signed(t.adjustment))
+            trf(" · by hand {0}", &[&crate::ui::settings::signed(t.adjustment)])
         };
         ui.add(
-            egui::Label::new(theme::caption(format!(
-                "opened {} · broken {} · base {}{by_hand}",
-                theme::thousands(t.opened as u64),
-                theme::thousands(t.broken as u64),
-                theme::thousands(t.base)
+            egui::Label::new(theme::caption(trf(
+                "opened {0} · broken {1} · base {2}{3}",
+                &[
+                    &theme::thousands(t.opened as u64),
+                    &theme::thousands(t.broken as u64),
+                    &theme::thousands(t.base),
+                    &by_hand,
+                ],
             )))
             .truncate(),
         );
@@ -94,7 +99,7 @@ fn hero(app: &ChestApp, ui: &mut egui::Ui) {
 fn last_days(ui: &mut egui::Ui, days: &std::collections::BTreeMap<chrono::NaiveDate, u64>, today: chrono::NaiveDate) {
     theme::card().show(ui, |ui| {
         ui.set_width(ui.available_width());
-        ui.label(theme::caption("Last 7 days"));
+        ui.label(theme::caption(tr("Last 7 days")));
         let week: Vec<(chrono::NaiveDate, u64)> = (0..7)
             .rev()
             .map(|back| {
@@ -127,7 +132,7 @@ fn last_days(ui: &mut egui::Ui, days: &std::collections::BTreeMap<chrono::NaiveD
             painter.text(
                 egui::pos2(x, rect.bottom()),
                 egui::Align2::CENTER_BOTTOM,
-                day.format("%a").to_string(),
+                day.format(&date_format(&day, "%a")).to_string(),
                 egui::FontId::proportional(11.0),
                 theme::MUTED,
             );
@@ -152,9 +157,12 @@ fn dashboard_tiles(
     let squad = t.with_squad();
     let rows: [[Tile; 2]; 3] = [
         [
-            ("Today".into(), theme::thousands(today_n), theme::OPENED, None),
+            (tr("Today").into(), theme::thousands(today_n), theme::OPENED, None),
             (
-                best_day.map_or_else(|| "Best day".into(), |(d, _)| format!("Best day · {}", d.format("%d %b"))),
+                best_day.map_or_else(
+                    || tr("Best day").into(),
+                    |(d, _)| trf("Best day · {0}", &[&d.format(&date_format(d, "%d %b"))]),
+                ),
                 theme::thousands(best_day.map_or(0, |(_, n)| *n)),
                 theme::GOLD,
                 None,
@@ -162,20 +170,29 @@ fn dashboard_tiles(
         ],
         [
             (
-                "Per match".into(),
+                tr("Per match").into(),
                 format!("{:.1}", t.per_match()),
                 theme::TEXT,
-                Some(format!("{} matches", t.counted_matches)),
+                Some(format!(
+                    "{} {}",
+                    t.counted_matches,
+                    plural(t.counted_matches as u64, "match", "matches", ["матч", "матча", "матчей"])
+                )),
             ),
-            ("Best match".into(), best.to_string(), theme::TEXT, None),
+            (tr("Best match").into(), best.to_string(), theme::TEXT, None),
         ],
         [
-            ("Squad".into(), theme::squad_count(t.teammates as u64), theme::SQUAD, Some("seen near you".into())),
             (
-                "Treasures".into(),
+                tr("Squad").into(),
+                theme::squad_count(t.teammates as u64),
+                theme::SQUAD,
+                Some(tr("seen near you").into()),
+            ),
+            (
+                tr("Treasures").into(),
                 theme::thousands(t.treasures as u64),
                 theme::TREASURE,
-                Some(format!("expected {:.1}", t.counted_squad() as f64 * any_reward_rate())),
+                Some(trf("expected {0}", &[&format!("{:.1}", t.counted_squad() as f64 * any_reward_rate())])),
             ),
         ],
     ];
@@ -189,27 +206,33 @@ fn dashboard_tiles(
     }
     theme::tile(
         ui,
-        "Pirate Shop Access chance",
+        tr("Pirate Shop Access chance"),
         &theme::percent(chance_at_least_one(squad, PIRATE_SHOP_ACCESS.one_in)),
         theme::OPENED,
-        Some(&format!(
-            "with squad · solo {} · 1 in {}",
-            theme::percent(chance_at_least_one(t.mine(), PIRATE_SHOP_ACCESS.one_in)),
-            theme::thousands(PIRATE_SHOP_ACCESS.one_in as u64)
+        Some(&trf(
+            "with squad · solo {0} · 1 in {1}",
+            &[
+                &theme::percent(chance_at_least_one(t.mine(), PIRATE_SHOP_ACCESS.one_in)),
+                &theme::thousands(PIRATE_SHOP_ACCESS.one_in as u64),
+            ],
         )),
     )
-    .on_hover_text(theme::SQUAD_NEARBY_NOTE);
+    .on_hover_text(theme::squad_nearby_note());
 }
 
 fn counting_note(app: &ChestApp) -> String {
-    let who = app.counted_player();
-    match app.settings.count_since {
-        Some(since) => format!(
-            "Counting {who} from {} on, plus a base of {}.",
-            since.format("%d %b %Y %H:%M"),
-            theme::thousands(app.settings.base_count)
+    let base = theme::thousands(app.settings.base_count);
+    match (app.counted_player(), app.settings.count_since) {
+        (Some(who), Some(since)) => trf(
+            "Counting {0} from {1} on, plus a base of {2}.",
+            &[&who, &since.format(&date_format(&since, "%d %b %Y %H:%M")), &base],
         ),
-        None => format!("Counting every match of {who}, plus a base of {}.", theme::thousands(app.settings.base_count)),
+        (None, Some(since)) => trf(
+            "Counting your matches from {0} on, plus a base of {1}.",
+            &[&since.format(&date_format(&since, "%d %b %Y %H:%M")), &base],
+        ),
+        (Some(who), None) => trf("Counting every match of {0}, plus a base of {1}.", &[&who, &base]),
+        (None, None) => trf("Counting all your matches, plus a base of {0}.", &[&base]),
     }
 }
 
@@ -217,10 +240,10 @@ fn warnings(app: &mut ChestApp, ui: &mut egui::Ui) {
     if !app.settings.replay_dir.is_dir() {
         theme::card().show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new("The replay folder does not exist.").color(theme::WARN));
-            ui.label(theme::caption(format!(
-                "{} was not found. Check the folder in Settings and make sure replay recording is on in Fortnite.",
-                app.settings.replay_dir.display()
+            ui.label(RichText::new(tr("The replay folder does not exist.")).color(theme::WARN));
+            ui.label(theme::caption(trf(
+                "{0} was not found. Check the folder in Settings and make sure replay recording is on in Fortnite.",
+                &[&app.settings.replay_dir.display()],
             )));
         });
         ui.add_space(8.0);
@@ -229,80 +252,84 @@ fn warnings(app: &mut ChestApp, ui: &mut egui::Ui) {
         theme::card().show(ui, |ui| {
             ui.set_width(ui.available_width());
             let who = if app.settings.nick.trim().is_empty() {
-                "the replay's recorder".to_string()
+                tr("the replay's recorder").to_string()
             } else {
-                format!("a player named \"{}\"", app.settings.nick)
+                trf("a player named \"{0}\"", &[&app.settings.nick])
             };
             ui.label(
-                RichText::new(format!("{} counted match(es) do not contain {who}.", app.totals.matches_without_player))
-                    .color(theme::WARN),
+                RichText::new(trf(
+                    "{0} counted match(es) do not contain {1}.",
+                    &[&app.totals.matches_without_player, &who],
+                ))
+                .color(theme::WARN),
             );
-            ui.label(theme::caption("Open the match to see who was in it, or fix your name in Settings."));
+            ui.label(theme::caption(tr("Open the match to see who was in it.")));
         });
         ui.add_space(8.0);
     }
-    let unhealthy = app.store.matches.iter().take(5).filter(|m| m.packet_health < 0.97).count();
+    let unhealthy =
+        crate::stats::own(&app.store.matches, &app.settings).take(5).filter(|m| m.packet_health < 0.97).count();
     if unhealthy > 0 {
         theme::card().show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new("Recent replays did not decode cleanly.").color(theme::WARN));
-            ui.label(theme::caption(
+            ui.label(RichText::new(tr("Recent replays did not decode cleanly.")).color(theme::WARN));
+            ui.label(theme::caption(tr(
                 "A Fortnite update probably changed the replay format. Counts may be low until the parser is updated.",
-            ));
+            )));
         });
         ui.add_space(8.0);
     }
 }
 
 fn latest_match(app: &mut ChestApp, ui: &mut egui::Ui) {
-    let Some(m) = app.store.matches.first() else {
+    let Some(m) = crate::stats::own(&app.store.matches, &app.settings).next() else {
         theme::card().show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new("No matches yet").size(16.0).strong());
+            ui.label(RichText::new(tr("No matches yet")).size(16.0).strong());
             ui.label(theme::caption(
-                "Play a match with replay recording on (Settings > Game > Replays), or drop .replay files on this window.",
+                tr("Play a match with replay recording on (Settings > Game > Replays), or drop .replay files on this window."),
             ));
-            if ui.button("Scan replay folder now").clicked() {
+            if ui.button(tr("Scan replay folder now")).clicked() {
                 app.worker.send(Command::Scan { force: false });
             }
         });
         return;
     };
-    let s = m.summary(&app.settings.nick);
+    let s = m.summary(app.settings.name_in(m));
     let id = m.id.clone();
     let response = theme::card()
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(theme::caption("Latest match"));
+            ui.label(theme::caption(tr("Latest match")));
             ui.horizontal(|ui| {
                 let when = m
                     .started_at
-                    .map(|t| t.format("%d %b %H:%M").to_string())
+                    .map(|t| t.format(&date_format(&t, "%d %b %H:%M")).to_string())
                     .unwrap_or_else(|| short_name(&m.file_name).to_string());
                 ui.label(RichText::new(when).size(18.0).strong());
                 if let (Some(p), Some(n)) = (m.placement, m.total_players) {
-                    ui.label(theme::caption(format!("#{p} of {n}")));
+                    ui.label(theme::caption(trf("#{0} of {1}", &[&p, &n])));
                 }
-                ui.label(theme::caption(format!("{:.0} min", m.length_minutes())));
+                ui.label(theme::caption(trf("{0} min", &[&format!("{:.0}", m.length_minutes())])));
             });
             ui.horizontal(|ui| {
                 ui.label(RichText::new(format!("+{}", s.mine())).size(26.0).strong().color(theme::GOLD));
-                ui.label(RichText::new(format!("opened {}", s.opened)).color(theme::OPENED));
-                ui.label(RichText::new(format!("broken {}", s.broken)).color(theme::BROKEN));
+                ui.label(RichText::new(trf("opened {0}", &[&s.opened])).color(theme::OPENED));
+                ui.label(RichText::new(trf("broken {0}", &[&s.broken])).color(theme::BROKEN));
                 if !s.teammates.is_empty() {
-                    ui.label(RichText::new(format!("squad +{}+", s.mates)).color(theme::SQUAD))
-                        .on_hover_text(theme::SQUAD_NEARBY_NOTE);
+                    ui.label(RichText::new(trf("squad +{0}+", &[&s.mates])).color(theme::SQUAD))
+                        .on_hover_text(theme::squad_nearby_note());
                 }
                 if s.treasures > 0 {
-                    ui.label(RichText::new(format!("treasure +{}", s.treasures)).color(theme::TREASURE));
+                    ui.label(RichText::new(trf("treasure +{0}", &[&s.treasures])).color(theme::TREASURE));
                 }
             });
             if !app.settings.counts(m.started_at) {
-                ui.label(theme::caption("Before the counting start date, not included in the total."));
+                ui.label(theme::caption(tr("Before the counting start date, not included in the total.")));
             }
         })
         .response;
-    if response.interact(egui::Sense::click()).on_hover_text("Open match details").clicked() {
+    if response.interact(egui::Sense::click()).on_hover_text(tr("Open match details")).clicked() {
         app.selected_match = Some(id);
         app.page = Page::Matches;
     }
@@ -312,27 +339,27 @@ fn activity(app: &mut ChestApp, ui: &mut egui::Ui) {
     theme::card().show(ui, |ui| {
         ui.set_width(ui.available_width());
         ui.horizontal(|ui| {
-            ui.label(RichText::new("Activity").strong());
+            ui.label(RichText::new(tr("Activity")).strong());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.button("Scan now").clicked() {
+                if ui.button(tr("Scan now")).clicked() {
                     app.worker.send(Command::Scan { force: false });
                 }
                 if let Some(at) = app.activity.last_scan {
-                    ui.label(theme::caption(format!("last scan {}", at.format("%H:%M:%S"))));
+                    ui.label(theme::caption(trf("last scan {0}", &[&at.format("%H:%M:%S")])));
                 }
             });
         });
         if app.activity.live_matches > 0 {
             ui.label(
-                RichText::new("A match is being played. It will be counted once you are back in the lobby.")
+                RichText::new(tr("A match is being played. It will be counted once you are back in the lobby."))
                     .color(theme::OPENED),
             );
         }
         if let Some((file, fraction, _)) = &app.activity.progress {
-            ui.add(egui::ProgressBar::new(*fraction).text(format!("Analyzing {}", short_name(file))));
+            ui.add(egui::ProgressBar::new(*fraction).text(trf("Analyzing {0}", &[&short_name(file)])));
         }
         if app.activity.log.is_empty() {
-            ui.label(theme::caption("Nothing yet."));
+            ui.label(theme::caption(tr("Nothing yet.")));
         }
         for line in app.activity.log.iter().take(8) {
             ui.label(theme::caption(line.clone()));

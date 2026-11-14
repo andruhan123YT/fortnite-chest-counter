@@ -28,13 +28,14 @@ pub struct QuestStart {
 
 pub fn read_profile(path: &Path) -> Result<QuestStart, String> {
     let text = std::fs::read_to_string(path).map_err(|e| e.to_string())?;
-    let json: Value = serde_json::from_str(&text).map_err(|_| "This is not a profile file.".to_string())?;
+    let json: Value =
+        serde_json::from_str(&text).map_err(|_| crate::i18n::tr("This is not a profile file.").to_string())?;
     from_profile(&json)
 }
 
 fn from_profile(json: &Value) -> Result<QuestStart, String> {
     if let Some(message) = json.get("errorMessage").and_then(Value::as_str) {
-        return Err(format!("Epic returned an error instead of a profile: {message}"));
+        return Err(crate::i18n::trf("Epic returned an error instead of a profile: {0}", &[&message]));
     }
     let mut quests = Vec::new();
     collect_quests(json, &mut quests);
@@ -43,7 +44,7 @@ fn from_profile(json: &Value) -> Result<QuestStart, String> {
     let (name, attributes) = quests
         .into_iter()
         .max_by_key(|(name, _)| quest_number(name))
-        .ok_or("No chest quests in this profile. Is it the Battle Royale (athena) profile?")?;
+        .ok_or(crate::i18n::tr("No chest quests in this profile. Is it the Battle Royale (athena) profile?"))?;
     let progress = attributes
         .as_object()
         .into_iter()
@@ -63,7 +64,7 @@ fn from_profile(json: &Value) -> Result<QuestStart, String> {
         .and_then(Value::as_str)
         .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
         .map(|t| t.with_timezone(&Local).naive_local())
-        .ok_or("The profile has no time for this quest.")?;
+        .ok_or(crate::i18n::tr("The profile has no time for this quest."))?;
     Ok(QuestStart { quest: name, progress, finished, at })
 }
 

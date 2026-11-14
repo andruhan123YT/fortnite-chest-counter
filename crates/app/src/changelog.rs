@@ -1,11 +1,22 @@
-//! What changed in each version, from `CHANGELOG.md`, shown once after an update.
+//! What changed in each version, from `CHANGELOG.md` (or `CHANGELOG.ru.md` in Russian),
+//! shown once after an update.
 
 use eframe::egui::{self, text::LayoutJob, RichText, TextFormat};
 
+use crate::i18n::{tr, trf, Lang};
 use crate::theme;
 use crate::update::{parse_version, version_text, Version};
 
 const CHANGELOG: &str = include_str!("../../../CHANGELOG.md");
+const CHANGELOG_RU: &str = include_str!("../../../CHANGELOG.ru.md");
+
+/// The notes in the interface language.
+fn notes() -> Vec<Entry> {
+    parse(match crate::i18n::lang() {
+        Lang::En => CHANGELOG,
+        Lang::Ru => CHANGELOG_RU,
+    })
+}
 /// Versions shown at most, newest first, after skipping several updates.
 const MAX_SHOWN: usize = 3;
 
@@ -43,13 +54,13 @@ fn unseen_in(entries: Vec<Entry>, seen: &str, current: Version) -> Vec<Entry> {
 }
 
 pub fn unseen(seen: &str) -> Vec<Entry> {
-    unseen_in(parse(CHANGELOG), seen, crate::update::current())
+    unseen_in(notes(), seen, crate::update::current())
 }
 
 /// The latest notes up to this version, for Settings > Updates.
 pub fn recent() -> Vec<Entry> {
     let current = crate::update::current();
-    parse(CHANGELOG).into_iter().filter(|e| e.version <= current).take(MAX_SHOWN).collect()
+    notes().into_iter().filter(|e| e.version <= current).take(MAX_SHOWN).collect()
 }
 
 /// An item with its `**bold**` parts in bold.
@@ -72,7 +83,7 @@ pub fn show(ctx: &egui::Context, entries: &[Entry]) -> bool {
     let mut close = false;
     let modal = egui::Modal::new(egui::Id::unique("whats_new")).show(ctx, |ui| {
         ui.set_width(460.0_f32.min(ctx.content_rect().width() - 60.0));
-        ui.label(theme::title(&format!("What's new in v{}", version_text(newest.version))));
+        ui.label(theme::title(&trf("What's new in v{0}", &[&version_text(newest.version)])));
         ui.add_space(8.0);
         egui::ScrollArea::vertical().max_height(ctx.content_rect().height() * 0.6).show(ui, |ui| {
             for (i, entry) in entries.iter().enumerate() {
@@ -93,7 +104,7 @@ pub fn show(ctx: &egui::Context, entries: &[Entry]) -> bool {
         });
         ui.add_space(12.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let button = egui::Button::new(RichText::new("Got it").strong().color(theme::BG)).fill(theme::GOLD);
+            let button = egui::Button::new(RichText::new(tr("Got it")).strong().color(theme::BG)).fill(theme::GOLD);
             close = ui.add(button).clicked();
         });
     });
@@ -142,6 +153,12 @@ mod tests {
         }
         let dialog = ctx.memory(|m| m.area_rect(egui::Id::unique("whats_new"))).expect("dialog shown");
         assert!(window.contains_rect(dialog), "dialog {dialog:?} spills out of {window:?}");
+    }
+
+    #[test]
+    fn the_russian_notes_match_the_english_ones() {
+        let shape = |text| parse(text).into_iter().map(|e| (e.version, e.items.len())).collect::<Vec<_>>();
+        assert_eq!(shape(CHANGELOG_RU), shape(CHANGELOG), "CHANGELOG.ru.md must have the same versions and items");
     }
 
     #[test]

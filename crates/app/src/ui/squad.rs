@@ -5,6 +5,7 @@ use eframe::egui::{self, RichText};
 use egui_extras::{Column, TableBuilder};
 
 use crate::app::{short_name, ChestApp, Page};
+use crate::i18n::{date_format, tr, trf};
 use crate::record::ANALYZER_VERSION;
 use crate::store::SquadLink;
 use crate::theme;
@@ -12,35 +13,35 @@ use crate::worker::Command;
 
 pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
     ui.horizontal(|ui| {
-        ui.label(theme::title("Squad replays"));
-        ui.label(theme::caption(format!("{} added", app.store.squad_replays.len())));
+        ui.label(theme::title(tr("Squad replays")));
+        ui.label(theme::caption(trf("{0} added", &[&app.store.squad_replays.len()])));
     });
-    ui.label(theme::caption(
+    ui.label(theme::caption(tr(
         "Add replays your teammates recorded of matches you played together. Each one is tied to your match \
          by the match id the server gives every player in it, never by date, and fills in what your own replay \
          could not see: teammates' chests far from you, and yours when they saw more of them. \
          They never count as matches of their own.",
-    ));
+    )));
     ui.add_space(6.0);
     ui.horizontal(|ui| {
-        if cfg!(windows) && ui.button("Add replays...").clicked() {
-            let files = super::settings::pick_files("Fortnite replay", "replay");
+        if cfg!(windows) && ui.button(tr("Add replays...")).clicked() {
+            let files = super::settings::pick_files(tr("Fortnite replay"), "replay");
             if !files.is_empty() {
-                app.activity.push_log(format!("Analyzing {} teammate replay(s)", files.len()));
+                app.activity.push_log(trf("Analyzing {0} teammate replay(s)", &[&files.len()]));
                 app.worker.send(Command::AnalyzeSquad(files));
             }
         }
-        ui.label(theme::caption("or drop .replay files on this page."));
+        ui.label(theme::caption(tr("or drop .replay files on this page.")));
     });
     if let Some((file, fraction, _)) = &app.activity.progress {
-        ui.label(theme::caption(format!("Analyzing {file}: {:.0}%", fraction * 100.0)));
+        ui.label(theme::caption(trf("Analyzing {0}: {1}%", &[file, &format!("{:.0}", fraction * 100.0)])));
     }
     ui.add_space(10.0);
 
     if app.store.squad_replays.is_empty() {
-        ui.label(RichText::new("No teammate replays yet.").color(theme::MUTED));
+        ui.label(RichText::new(tr("No teammate replays yet.")).color(theme::MUTED));
         ui.label(theme::caption(
-            "Teammates find theirs in %LOCALAPPDATA%\\FortniteGame\\Saved\\Demos. The newest ones are the last matches.",
+            tr("Teammates find theirs in %LOCALAPPDATA%\\FortniteGame\\Saved\\Demos. The newest ones are the last matches."),
         ));
         return;
     }
@@ -50,7 +51,7 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
         .squad_replays
         .iter()
         .map(|r| {
-            let when = r.started_at.map(|t| t.format("%d %b %H:%M").to_string()).unwrap_or_default();
+            let when = r.started_at.map(|t| t.format(&date_format(&t, "%d %b %H:%M")).to_string()).unwrap_or_default();
             let owner = r.owner.clone().unwrap_or_else(|| short_name(&r.file_name).to_string());
             let stale = r.analyzer_version < ANALYZER_VERSION;
             (r.id.clone(), when, owner, app.store.squad_link(r), stale)
@@ -65,7 +66,7 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
         .column(Column::remainder().at_least(240.0))
         .column(Column::auto())
         .header(24.0, |mut h| {
-            for title in ["Recorded", "By", "Your match", ""] {
+            for title in [tr("Recorded"), tr("By"), tr("Your match"), ""] {
                 h.col(|ui| {
                     ui.label(RichText::new(title).strong().color(theme::MUTED));
                 });
@@ -80,34 +81,34 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
                     row.col(|ui| {
                         ui.label(owner);
                         if *stale {
-                            ui.label(RichText::new("outdated").color(theme::WARN)).on_hover_text(
+                            ui.label(RichText::new(tr("outdated")).color(theme::WARN)).on_hover_text(tr(
                                 "Analyzed by an older version of the app. Add the file again to update it: \
                                  counts and chest times may be off until then.",
-                            );
+                            ));
                         }
                     });
                     row.col(|ui| match link {
                         SquadLink::Linked { match_record, added } => {
                             let text = match added {
-                                0 => "linked, your replay already saw everything".to_string(),
-                                n => format!("linked, +{n} chests your replay missed"),
+                                0 => tr("linked, your replay already saw everything").to_string(),
+                                n => trf("linked, +{0} chests your replay missed", &[&n]),
                             };
                             if ui.link(RichText::new(text).color(theme::OPENED)).clicked() {
                                 open = Some(match_record.clone());
                             }
                         }
                         SquadLink::Unmatched => {
-                            ui.label(RichText::new("no replay of yours from this match").color(theme::MUTED));
+                            ui.label(RichText::new(tr("no replay of yours from this match")).color(theme::MUTED));
                         }
                         SquadLink::Own => {
-                            ui.label(RichText::new("this is your own replay").color(theme::WARN));
+                            ui.label(RichText::new(tr("this is your own replay")).color(theme::WARN));
                         }
                         SquadLink::NoMatchId => {
-                            ui.label(RichText::new("no match id in this replay").color(theme::WARN));
+                            ui.label(RichText::new(tr("no match id in this replay")).color(theme::WARN));
                         }
                     });
                     row.col(|ui| {
-                        if ui.small_button("Remove").clicked() {
+                        if ui.small_button(tr("Remove")).clicked() {
                             remove = Some(id.clone());
                         }
                     });

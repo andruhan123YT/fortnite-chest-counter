@@ -12,6 +12,7 @@ use eframe::egui::{self, RichText, Sense, Stroke, StrokeKind, ViewportBuilder, V
 
 use crate::app::{ChestApp, Page};
 use crate::config::OverlayCorner;
+use crate::i18n::tr;
 use crate::{platform, theme};
 
 pub const OVERLAY_TITLE: &str = "Fortnite Chest Counter Overlay";
@@ -25,6 +26,8 @@ pub const MIN_SCALE: f32 = 0.5;
 pub const MAX_SCALE: f32 = 2.5;
 const SCREEN_MARGIN: f32 = 16.0;
 const FORTNITE_CHECK_EVERY: Duration = Duration::from_secs(5);
+/// How soon the overlay follows the player switching away from the game and back.
+const FRONT_CHECK_EVERY: Duration = Duration::from_millis(250);
 /// Side of the resize handle in the bottom right corner.
 const GRIP: f32 = 16.0;
 /// Width of the resize strips along the right and bottom edges.
@@ -32,7 +35,10 @@ const EDGE: f32 = 6.0;
 
 #[derive(Default)]
 pub struct OverlayState {
-    fortnite_running: bool,
+    /// Fortnite's process id, while it runs.
+    fortnite: Option<u32>,
+    /// Fortnite's window was in front when last looked at.
+    game_in_front: bool,
     checked_at: Option<Instant>,
     applied_alpha: Option<u8>,
     /// The overlay takes the mouse so it can be moved and resized.
@@ -179,8 +185,9 @@ fn resized_scale(scale: f32, size: egui::Vec2, moved: egui::Vec2, axis: Axis) ->
     (scale * grow).clamp(MIN_SCALE, MAX_SCALE)
 }
 
-/// A small green "live" mark next to the title while a match is being played.
-fn live_badge(ui: &mut egui::Ui, scale: f32) {
+/// A small green "live" mark next to the title while a match is being played, with how
+/// long it has been going since the game loaded it.
+fn live_badge(ui: &mut egui::Ui, scale: f32, elapsed: Option<i64>) {
     egui::Frame::new()
         .fill(egui::Color32::from_rgba_unmultiplied(94, 194, 122, 36))
         .corner_radius(egui::CornerRadius::same((8.0 * scale) as u8))
@@ -193,10 +200,20 @@ fn live_badge(ui: &mut egui::Ui, scale: f32) {
                 ui.painter().circle_filled(dot.center(), 3.0 * scale, theme::OPENED);
                 ui.add(
                     egui::Label::new(
-                        RichText::new("IN MATCH").font(theme::font(theme::BOLD, 9.5 * scale)).color(theme::OPENED),
+                        RichText::new(tr("IN MATCH")).font(theme::font(theme::BOLD, 9.5 * scale)).color(theme::OPENED),
                     )
                     .extend(),
                 );
+                if let Some(secs) = elapsed {
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(match_clock(secs))
+                                .font(theme::font(theme::BOLD, 9.5 * scale))
+                                .color(theme::TEXT),
+                        )
+                        .extend(),
+                    );
+                }
             });
         });
 }
@@ -230,6 +247,20 @@ pub struct Numbers {
     pub squad: u64,
     pub treasures: u64,
     pub in_match: bool,
+    /// Seconds since the game loaded the current match, from its log.
+    pub match_secs: Option<i64>,
+}
+
+/// A match that seems to run longer than this was left without the log saying so.
+const LONGEST_MATCH: i64 = 3 * 3600;
+
+/// `12:34`, or `1:02:03` past an hour.
+pub fn match_clock(secs: i64) -> String {
+    let secs = secs.max(0);
+    match secs / 3600 {
+        0 => format!("{}:{:02}", secs / 60, secs % 60),
+        h => format!("{h}:{:02}:{:02}", secs / 60 % 60, secs % 60),
+    }
 }
 
 pub fn numbers(app: &ChestApp) -> Numbers {
@@ -237,11 +268,17 @@ pub fn numbers(app: &ChestApp) -> Numbers {
     let today = chrono::Local::now().date_naive();
     Numbers {
         total: t.mine(),
-        last_match: app.store.matches.first().map_or(0, |m| m.summary(&app.settings.nick).mine() as u64),
+        last_match: crate::stats::own(&app.store.matches, &app.settings)
+            .next()
+            .map_or(0, |m| m.summary(app.settings.name_in(m)).mine() as u64),
         today: crate::stats::by_day(&app.store.matches, &app.settings).get(&today).copied().unwrap_or(0),
         squad: t.teammates as u64,
         treasures: t.treasures as u64,
         in_match: app.activity.live_matches > 0,
+        match_secs: app
+            .match_joined
+            .map(|at| (chrono::Utc::now() - at).num_seconds())
+            .filter(|s| (0..LONGEST_MATCH).contains(s)),
     }
 }
 
@@ -261,17 +298,28 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
         app.overlay.applied_alpha = None;
         return;
     }
-    if settings.only_with_fortnite && !editing {
+    // Behind another window the overlay turns see-through rather than closing: shown
+    // again, a new window would fly in with Windows' animation, its lock icon first.
+    let mut hidden = false;
+    if (settings.only_with_fortnite || settings.only_over_fortnite) && !editing {
         let due = app.overlay.checked_at.is_none_or(|at| at.elapsed() >= FORTNITE_CHECK_EVERY);
         if due {
-            app.overlay.fortnite_running = platform::fortnite_running();
+            app.overlay.fortnite = platform::fortnite_pid();
             app.overlay.checked_at = Some(Instant::now());
         }
         // Keep the root window ticking so the overlay appears when the game starts.
         ctx.request_repaint_after(FORTNITE_CHECK_EVERY);
-        if !app.overlay.fortnite_running {
+        let Some(game) = app.overlay.fortnite else {
             app.overlay.applied_alpha = None;
             return;
+        };
+        if settings.only_over_fortnite {
+            // The app's own windows in front leave the answer as it was.
+            if let Some(front) = platform::foreground_pid() {
+                app.overlay.game_in_front = front == game;
+            }
+            ctx.request_repaint_after(FRONT_CHECK_EVERY);
+            hidden = !app.overlay.game_in_front;
         }
     }
 
@@ -289,11 +337,15 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
     let mine = theme::thousands(n.total);
     let last = n.last_match.to_string();
     let stats = [
-        ("TODAY", theme::thousands(n.today), theme::TEXT),
-        ("SQUAD", theme::thousands(n.squad), theme::SQUAD),
-        ("TREASURES", n.treasures.to_string(), theme::TREASURE),
+        (tr("TODAY"), theme::thousands(n.today), theme::TEXT),
+        (tr("SQUAD"), theme::thousands(n.squad), theme::SQUAD),
+        (tr("TREASURES"), n.treasures.to_string(), theme::TREASURE),
     ];
-    let live = n.in_match;
+    let live = n.in_match || n.match_secs.is_some();
+    if n.match_secs.is_some() {
+        // The match clock ticks.
+        ctx.request_repaint_after(Duration::from_secs(1));
+    }
 
     let builder = ViewportBuilder::default()
         .with_title(OVERLAY_TITLE)
@@ -334,9 +386,9 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
                 };
                 let caption = |t: &str| text(t, theme::SEMIBOLD, 9.5, theme::MUTED);
                 ui.horizontal(|ui| {
-                    ui.add(caption("CHESTS"));
+                    ui.add(caption(tr("CHESTS")));
                     if live {
-                        live_badge(ui, scale);
+                        live_badge(ui, scale, n.match_secs);
                     }
                 });
                 ui.add_space(2.0 * scale);
@@ -345,7 +397,7 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
                         ui.add(text(&mine, theme::BOLD, 32.0, theme::GOLD));
-                        ui.add(caption("TOTAL"));
+                        ui.add(caption(tr("TOTAL")));
                     });
                     // The last match in a tile of its own.
                     egui::Frame::new()
@@ -362,14 +414,14 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
                                     .x
                             };
                             ui.set_width(width(&last, theme::BOLD, 22.0).max(width(
-                                "LAST MATCH",
+                                tr("LAST MATCH"),
                                 theme::SEMIBOLD,
                                 9.5,
                             )));
                             ui.vertical_centered(|ui| {
                                 ui.spacing_mut().item_spacing.y = 0.0;
                                 ui.add(text(&last, theme::BOLD, 22.0, theme::TEXT));
-                                ui.add(caption("LAST MATCH"));
+                                ui.add(caption(tr("LAST MATCH")));
                             });
                         });
                 });
@@ -441,7 +493,7 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
             if editing { (theme::icon::UNLOCK, theme::GOLD) } else { (theme::icon::LOCK, theme::MUTED) };
         let icon =
             egui::Button::new(theme::icon_text(glyph, if editing { "U" } else { "L" }, 14.0).color(color)).frame(false);
-        if ui.put(lock_at, icon).on_hover_text("Lock it in place").clicked() {
+        if ui.put(lock_at, icon).on_hover_text(tr("Lock it in place")).clicked() {
             done.lock = true;
         }
         // While unlocked, a cross next to the lock hides the overlay.
@@ -451,7 +503,7 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
                 egui::Button::new(theme::icon_text(theme::icon::CLOSE, "X", 12.0).color(theme::GOLD)).frame(false);
             if ui
                 .put(close_at, cross)
-                .on_hover_text("Hide the overlay (Settings > Overlay or the tray menu brings it back)")
+                .on_hover_text(tr("Hide the overlay (Settings > Overlay or the tray menu brings it back)"))
                 .clicked()
             {
                 done.close = true;
@@ -482,22 +534,34 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
     if done.close {
         app.settings.overlay.enabled = false;
         lock(app);
-        app.activity.push_log("Overlay hidden. Settings > Overlay or the tray menu shows it again".into());
+        app.activity.push_log(tr("Overlay hidden. Settings > Overlay or the tray menu shows it again").into());
     } else if done.lock {
         toggle_from_icon(app);
     }
 
-    let alpha = if editing { 255 } else { (settings.opacity.clamp(0.3, 1.0) * 255.0).round() as u8 };
-    if app.overlay.applied_alpha != Some(alpha) && platform::set_window_opacity(OVERLAY_TITLE, alpha) {
-        app.overlay.applied_alpha = Some(alpha);
+    let alpha = if hidden {
+        0
+    } else if editing {
+        255
+    } else {
+        (settings.opacity.clamp(0.3, 1.0) * 255.0).round() as u8
+    };
+    if app.overlay.applied_alpha != Some(alpha) {
+        if app.overlay.applied_alpha.is_none() {
+            platform::disable_window_animation(OVERLAY_TITLE);
+        }
+        if platform::set_window_opacity(OVERLAY_TITLE, alpha) {
+            app.overlay.applied_alpha = Some(alpha);
+        }
     }
 
     // Locked, the overlay lets the mouse through, so a tiny window of its own sits on the
     // lock icon to catch a click. Everything else still goes to the game.
     // Unlocked, it is parked off screen, and also in the frame that locks the overlay:
     // `pos` and `size` still hold the old place there.
-    let parked = app.overlay.editing || editing;
-    if parked && !app.overlay.editing {
+    let parked = app.overlay.editing || editing || hidden;
+    // The frame that locks the overlay draws once more to bring the icon back.
+    if editing && !app.overlay.editing {
         ctx.request_repaint();
     }
     let lock_builder = ViewportBuilder::default()
@@ -515,7 +579,7 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
         egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::BG)).show(ui, |ui| {
             let icon =
                 egui::Button::new(theme::icon_text(theme::icon::LOCK, "L", 14.0).color(theme::MUTED)).frame(false);
-            clicked = ui.put(ui.max_rect(), icon).on_hover_text("Unlock to move and resize the overlay").clicked();
+            clicked = ui.put(ui.max_rect(), icon).on_hover_text(tr("Unlock to move and resize the overlay")).clicked();
         });
         clicked
     });
@@ -550,6 +614,13 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_match_clock_reads_like_a_clock() {
+        assert_eq!(match_clock(0), "0:00");
+        assert_eq!(match_clock(754), "12:34");
+        assert_eq!(match_clock(3723), "1:02:03");
+    }
 
     #[test]
     fn a_window_eframe_cannot_draw_skips_the_frame_instead_of_crashing() {
