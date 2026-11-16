@@ -51,7 +51,7 @@ fn guide(ui: &mut egui::Ui, state: &mut QuestImport, fields: &mut SettingsUi, ma
         tr("Paste it into the script window and press Enter. The script saves epic-profile.json next to itself \
             and closes the Epic session straight away."),
     );
-    step(ui, 4, tr("Import the file here. The base count and start time below are filled in for you; then save."));
+    step(ui, 4, tr("Import the file here. The base count and start time below are filled in and saved for you."));
     ui.horizontal(|ui| {
         let saved = quest::saved_profile();
         if ui.add_enabled(saved.is_some(), egui::Button::new(trf("Import {0}", &[&PROFILE_FILE]))).clicked() {
@@ -69,7 +69,7 @@ fn guide(ui: &mut egui::Ui, state: &mut QuestImport, fields: &mut SettingsUi, ma
     match &state.result {
         Some(Ok(start)) => outcome(ui, start, matches),
         Some(Err(message)) => {
-            ui.label(RichText::new(message).color(theme::BROKEN));
+            ui.label(RichText::new(message).color(theme::broken()));
         }
         None => {}
     }
@@ -87,7 +87,7 @@ fn guide(ui: &mut egui::Ui, state: &mut QuestImport, fields: &mut SettingsUi, ma
              or the session: it only reads the file you give it, on your PC.",
         ))
         .strong()
-        .color(theme::GOLD),
+        .color(theme::gold()),
     );
 }
 
@@ -114,7 +114,7 @@ fn outcome(ui: &mut egui::Ui, start: &QuestStart, matches: &[MatchRecord]) {
     } else {
         trf("Your quest is still running: {0} chests as of {1}.", &[&start.progress, &when])
     };
-    ui.label(RichText::new(text).strong().color(theme::OPENED));
+    ui.label(RichText::new(text).strong().color(theme::opened()));
     if start.finished {
         let note = match quest::match_at(matches, start.at) {
             Some(m) => trf(

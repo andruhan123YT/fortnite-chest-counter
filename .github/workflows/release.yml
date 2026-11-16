@@ -1,7 +1,7 @@
 name: Release
 
-# Push a tag like v1.0.0 to build the exe, its checksum and the zip and attach them to
-# that release. Installed apps find it through the latest release and update from the exe
+# Push a tag like v1.0.0 to build the exe and its checksum and attach them to that release.
+# The licenses of the bundled crates are inside the exe (Settings > About). Installed apps find it through the latest release and update from the exe
 # and the .sha256, so keep those file names. The tag must match the version in Cargo.toml.
 on:
   push:
@@ -33,7 +33,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          files=(dist/fortnite-chest-counter.exe dist/fortnite-chest-counter.exe.sha256 dist/*.zip)
+          files=(dist/fortnite-chest-counter.exe dist/fortnite-chest-counter.exe.sha256)
           if gh release view "$GITHUB_REF_NAME" > /dev/null 2>&1; then
             gh release upload "$GITHUB_REF_NAME" "${files[@]}" --clobber
           else

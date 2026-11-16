@@ -1,15 +1,18 @@
-"""Build the release executable and pack it with its licenses into dist/.
+"""Build the release executable and put the release files into dist/.
 
     python tools/package.py            # build, then pack
     python tools/package.py --no-build # pack an existing target/release build
 
-Produces dist/fortnite-chest-counter.exe (the standalone download), its SHA-256 in
-dist/fortnite-chest-counter.exe.sha256 (the app checks updates against it) and
-dist/fortnite-chest-counter-<version>-windows-x64.zip containing the
-executable, the Epic profile script, README.md, LICENSE, NOTICE and
-THIRD_PARTY_LICENSES.txt. The third-party
-file is generated from `cargo metadata`: every crate compiled into the executable, with
-the license files shipped in its source package.
+Produces dist/fortnite-chest-counter.exe (the download) and its SHA-256 in
+dist/fortnite-chest-counter.exe.sha256 (the app checks updates against it).
+
+The licenses of the crates compiled into the executable, which ask for their text to go
+along with it, are built into the app (About > Show licenses) from
+crates/app/assets/licenses.json, generated from `cargo metadata` and the license files
+each crate ships. It is regenerated here; if it changed, the script stops so the new
+file gets committed before a release.
+
+    python tools/package.py --licenses # only rewrite crates/app/assets/licenses.json
 """
 
 import hashlib
@@ -19,7 +22,6 @@ import re
 import shutil
 import subprocess
 import sys
-import zipfile
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 TARGET = "x86_64-pc-windows-msvc"
@@ -31,39 +33,58 @@ def run(cmd):
     return subprocess.run(cmd, cwd=ROOT, check=True, capture_output=True, text=True, encoding="utf-8").stdout
 
 
-def version():
-    text = (ROOT / "Cargo.toml").read_text(encoding="utf-8")
-    return re.search(r'^version\s*=\s*"([^"]+)"', text, re.MULTILINE).group(1)
+LICENSES_ASSET = ROOT / "crates" / "app" / "assets" / "licenses.json"
 
 
-def third_party_licenses():
+def shipped_crates():
     meta = json.loads(run(["cargo", "metadata", "--format-version", "1", "--filter-platform", TARGET]))
     shipped = shipped_packages(meta, "fortnite-chest-counter")
-    packages = sorted(
+    return sorted(
         (p for p in meta["packages"] if p["id"] in shipped and p["source"]),
         key=lambda p: (p["name"], p["version"]),
     )
-    parts = [
-        "Third-party licenses\n"
-        "====================\n\n"
-        f"Fortnite Chest Counter includes the following {len(packages)} Rust crates.\n"
-    ]
+
+
+def license_files(p):
+    folder = pathlib.Path(p["manifest_path"]).parent
+    files = sorted(f for f in folder.iterdir() if f.is_file() and LICENSE_FILE.match(f.name))
+    if p.get("license_file"):
+        extra = folder / p["license_file"]
+        if extra.is_file() and extra not in files:
+            files.append(extra)
+    return files
+
+
+def licenses_asset(packages):
+    """The list for the app: each crate with indexes into `texts`, where every distinct
+    license text is stored once."""
+    texts, index, crates = [], {}, []
     for p in packages:
-        header = f"{p['name']} {p['version']}  ({p.get('license') or 'see below'})"
-        parts.append("\n" + "-" * 78 + "\n" + header + "\n")
-        if p.get("repository"):
-            parts.append(p["repository"] + "\n")
-        folder = pathlib.Path(p["manifest_path"]).parent
-        files = sorted(f for f in folder.iterdir() if f.is_file() and LICENSE_FILE.match(f.name))
-        if p.get("license_file"):
-            extra = folder / p["license_file"]
-            if extra.is_file() and extra not in files:
-                files.append(extra)
-        for f in files:
-            parts.append(f"\n[{f.name}]\n\n" + f.read_text(encoding="utf-8", errors="replace").strip() + "\n")
-        if not files:
-            parts.append("\n(No license file in the package; licensed as stated above.)\n")
-    return "".join(parts)
+        ids = []
+        for f in license_files(p):
+            text = f.read_text(encoding="utf-8", errors="replace").replace("\r\n", "\n").strip()
+            if text not in index:
+                index[text] = len(texts)
+                texts.append(text)
+            ids.append(index[text])
+        crates.append({
+            "name": p["name"],
+            "version": p["version"],
+            "license": p.get("license") or "",
+            "repository": p.get("repository") or "",
+            "texts": ids,
+        })
+    return json.dumps({"crates": crates, "texts": texts}, ensure_ascii=False, separators=(",", ":")) + "\n"
+
+
+def write_licenses_asset(packages):
+    """Rewrites the app's list. Returns True if it changed."""
+    new = licenses_asset(packages)
+    old = LICENSES_ASSET.read_text(encoding="utf-8") if LICENSES_ASSET.is_file() else ""
+    if new == old:
+        return False
+    LICENSES_ASSET.write_text(new, encoding="utf-8", newline="\n")
+    return True
 
 
 def shipped_packages(meta, root_name):
@@ -87,6 +108,10 @@ def shipped_packages(meta, root_name):
 
 
 def main():
+    if "--licenses" in sys.argv:
+        changed = write_licenses_asset(shipped_crates())
+        print(LICENSES_ASSET, "updated" if changed else "unchanged")
+        return
     if "--no-build" not in sys.argv:
         subprocess.run(["cargo", "build", "--release", "-p", "fortnite-chest-counter"], cwd=ROOT, check=True)
     exe = ROOT / "target" / "release" / EXE
@@ -97,19 +122,9 @@ def main():
     shutil.copy2(exe, dist / EXE)
     digest = hashlib.sha256((dist / EXE).read_bytes()).hexdigest()
     (dist / f"{EXE}.sha256").write_text(f"{digest}  {EXE}\n", encoding="ascii", newline="\n")
-    licenses = third_party_licenses()
-    (dist / "THIRD_PARTY_LICENSES.txt").write_text(licenses, encoding="utf-8")
-    archive = dist / f"fortnite-chest-counter-{version()}-windows-x64.zip"
-    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as z:
-        z.write(exe, EXE)
-        for name in ["README.md", "LICENSE", "NOTICE"]:
-            z.write(ROOT / name, name)
-        scripts = ROOT / "crates" / "app" / "scripts"
-        for script in sorted(p for p in scripts.iterdir() if p.suffix in {".bat", ".ps1"}):
-            text = script.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\n", "\r\n")
-            z.writestr(script.name, text)
-        z.writestr("THIRD_PARTY_LICENSES.txt", licenses)
-    print(archive)
+    print(dist / EXE)
+    if write_licenses_asset(shipped_crates()):
+        sys.exit(f"{LICENSES_ASSET} was out of date and is rewritten: commit it and build again")
 
 
 if __name__ == "__main__":

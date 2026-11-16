@@ -1,5 +1,5 @@
-//! What changed in each version, from `CHANGELOG.md` (or `CHANGELOG.ru.md` in Russian),
-//! shown once after an update.
+//! What changed in each version, from `changelogs/<language>.md`, shown once after an
+//! update.
 
 use eframe::egui::{self, text::LayoutJob, RichText, TextFormat};
 
@@ -7,15 +7,35 @@ use crate::i18n::{tr, trf, Lang};
 use crate::theme;
 use crate::update::{parse_version, version_text, Version};
 
-const CHANGELOG: &str = include_str!("../../../CHANGELOG.md");
-const CHANGELOG_RU: &str = include_str!("../../../CHANGELOG.ru.md");
+const CHANGELOG: &str = include_str!("../../../changelogs/en.md");
+
+/// The notes written in `lang`, from `changelogs/<its code>.md`.
+fn text(lang: Lang) -> &'static str {
+    match lang {
+        Lang::En => CHANGELOG,
+        Lang::Ru => include_str!("../../../changelogs/ru.md"),
+        Lang::Ar => include_str!("../../../changelogs/ar.md"),
+        Lang::De => include_str!("../../../changelogs/de.md"),
+        Lang::Es => include_str!("../../../changelogs/es.md"),
+        Lang::Es419 => include_str!("../../../changelogs/es-419.md"),
+        Lang::Fr => include_str!("../../../changelogs/fr.md"),
+        Lang::Id => include_str!("../../../changelogs/id.md"),
+        Lang::It => include_str!("../../../changelogs/it.md"),
+        Lang::Ja => include_str!("../../../changelogs/ja.md"),
+        Lang::Ko => include_str!("../../../changelogs/ko.md"),
+        Lang::Pl => include_str!("../../../changelogs/pl.md"),
+        Lang::PtBr => include_str!("../../../changelogs/pt-BR.md"),
+        Lang::Th => include_str!("../../../changelogs/th.md"),
+        Lang::Tr => include_str!("../../../changelogs/tr.md"),
+        Lang::Vi => include_str!("../../../changelogs/vi.md"),
+        Lang::ZhHans => include_str!("../../../changelogs/zh-Hans.md"),
+        Lang::ZhHant => include_str!("../../../changelogs/zh-Hant.md"),
+    }
+}
 
 /// The notes in the interface language.
 fn notes() -> Vec<Entry> {
-    parse(match crate::i18n::lang() {
-        Lang::En => CHANGELOG,
-        Lang::Ru => CHANGELOG_RU,
-    })
+    parse(text(crate::i18n::lang()))
 }
 /// Versions shown at most, newest first, after skipping several updates.
 const MAX_SHOWN: usize = 3;
@@ -57,7 +77,7 @@ pub fn unseen(seen: &str) -> Vec<Entry> {
     unseen_in(notes(), seen, crate::update::current())
 }
 
-/// The latest notes up to this version, for Settings > Updates.
+/// The latest notes up to this version, for Settings > About.
 pub fn recent() -> Vec<Entry> {
     let current = crate::update::current();
     notes().into_iter().filter(|e| e.version <= current).take(MAX_SHOWN).collect()
@@ -65,18 +85,32 @@ pub fn recent() -> Vec<Entry> {
 
 /// An item with its `**bold**` parts in bold.
 fn item_text(item: &str, ui: &egui::Ui) -> LayoutJob {
-    let regular = TextFormat::simple(egui::FontId::proportional(14.0), theme::TEXT);
-    let bold = TextFormat::simple(theme::font(theme::SEMIBOLD, 14.0), theme::GOLD);
+    let regular = TextFormat::simple(egui::FontId::proportional(14.0), theme::text());
+    let bold = TextFormat::simple(theme::font(theme::SEMIBOLD, 14.0), theme::gold());
     let mut job = LayoutJob::default();
-    for (i, part) in item.split("**").enumerate() {
-        job.append(part, 0.0, if i % 2 == 1 { bold.clone() } else { regular.clone() });
+    if crate::i18n::lang() == Lang::Ar {
+        // Right-to-left text is laid out line by line ahead of time, so a bold title gets a
+        // line of its own above the rest; bold inside a sentence stays plain.
+        let title = item.strip_prefix("**").and_then(|rest| rest.split_once("**"));
+        match title {
+            Some((title, rest)) if !rest.trim().is_empty() => {
+                job.append(&(crate::i18n::for_screen(title.trim()) + "\n"), 0.0, bold.clone());
+                job.append(&crate::i18n::for_screen(rest.trim()), 0.0, regular.clone());
+            }
+            _ => job.append(&crate::i18n::for_screen(&item.replace("**", "")), 0.0, regular.clone()),
+        }
+    } else {
+        for (i, part) in item.split("**").enumerate() {
+            job.append(part, 0.0, if i % 2 == 1 { bold.clone() } else { regular.clone() });
+        }
     }
     job.wrap.max_width = ui.available_width();
     job
 }
 
-/// A dialog with `entries`. Returns true once the player closes it.
-pub fn show(ctx: &egui::Context, entries: &[Entry]) -> bool {
+/// A dialog with `entries`, and the switch for installing updates by themselves when
+/// `auto_update` is given. Returns true once the player closes it.
+pub fn show(ctx: &egui::Context, entries: &[Entry], auto_update: Option<&mut bool>) -> bool {
     let Some(newest) = entries.first() else {
         return true;
     };
@@ -95,16 +129,24 @@ pub fn show(ctx: &egui::Context, entries: &[Entry]) -> bool {
                 }
                 for item in &entry.items {
                     ui.horizontal_top(|ui| {
-                        ui.label(RichText::new("•").color(theme::GOLD));
+                        ui.label(RichText::new("•").color(theme::gold()));
                         // A horizontal row would stretch the label to one line instead.
                         ui.add(egui::Label::new(item_text(item, ui)).wrap());
                     });
                 }
             }
         });
+        if let Some(on) = auto_update {
+            ui.add_space(6.0);
+            ui.separator();
+            ui.horizontal(|ui| {
+                ui.label(tr("Install updates automatically"));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| theme::toggle(ui, on));
+            });
+        }
         ui.add_space(12.0);
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let button = egui::Button::new(RichText::new(tr("Got it")).strong().color(theme::BG)).fill(theme::GOLD);
+            let button = egui::Button::new(RichText::new(tr("Got it")).strong().color(theme::bg())).fill(theme::gold());
             close = ui.add(button).clicked();
         });
     });
@@ -144,9 +186,10 @@ mod tests {
         let window = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(900.0, 600.0));
         let input = egui::RawInput { screen_rect: Some(window), ..Default::default() };
         let entries = parse(CHANGELOG);
+        let mut auto_update = true;
         for _ in 0..3 {
             ctx.run_ui(input.clone(), |ui| {
-                show(ui.ctx(), &entries);
+                show(ui.ctx(), &entries, Some(&mut auto_update));
             })
             .textures_delta
             .clear();
@@ -156,9 +199,32 @@ mod tests {
     }
 
     #[test]
-    fn the_russian_notes_match_the_english_ones() {
+    fn every_language_has_the_same_notes_as_english() {
         let shape = |text| parse(text).into_iter().map(|e| (e.version, e.items.len())).collect::<Vec<_>>();
-        assert_eq!(shape(CHANGELOG_RU), shape(CHANGELOG), "CHANGELOG.ru.md must have the same versions and items");
+        for lang in Lang::ALL {
+            assert_eq!(
+                shape(text(lang)),
+                shape(CHANGELOG),
+                "changelogs for {lang:?} must have the same versions and items as en.md"
+            );
+        }
+    }
+
+    #[test]
+    fn arabic_notes_put_the_title_on_its_own_line() {
+        crate::i18n::set(Lang::Ar);
+        let ui_ctx = egui::Context::default();
+        let mut job = None;
+        ui_ctx
+            .run_ui(Default::default(), |ui| {
+                job = Some(item_text("**عنوان.** نص البند", ui));
+            })
+            .textures_delta
+            .clear();
+        let job = job.unwrap();
+        crate::i18n::set(Lang::En);
+        assert_eq!(job.sections.len(), 2);
+        assert!(job.text.contains('\n') && !job.text.contains("**"));
     }
 
     #[test]
@@ -166,7 +232,7 @@ mod tests {
         let entries = parse(CHANGELOG);
         assert!(
             entries.iter().any(|e| e.version == crate::update::current()),
-            "CHANGELOG.md needs a section for v{}",
+            "changelogs/en.md needs a section for v{}",
             env!("CARGO_PKG_VERSION")
         );
     }

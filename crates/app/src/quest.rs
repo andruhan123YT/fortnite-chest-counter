@@ -111,8 +111,8 @@ pub fn match_at(matches: &[MatchRecord], at: NaiveDateTime) -> Option<&MatchReco
         .map(|(m, _)| m)
 }
 
-/// Folders where the script and its profile file can be: next to the executable (release
-/// zip) or the app's data folder (written by the app).
+/// Folders where the script and its profile file can be: next to the executable (the
+/// release zip up to 1.1.4 had it) or the app's data folder (written by the app).
 fn script_dirs() -> Vec<PathBuf> {
     let beside_exe = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
     beside_exe.into_iter().chain([data_dir().join("Epic profile")]).collect()

@@ -64,7 +64,7 @@ fn table(app: &mut ChestApp, ui: &mut egui::Ui) {
             let titles = [tr("Date"), tr("Length"), tr("Place"), tr("Opened"), tr("Broken"), tr("Mine"), squad, ""];
             for title in titles {
                 h.col(|ui| {
-                    let label = ui.label(RichText::new(title).strong().color(theme::MUTED));
+                    let label = ui.label(RichText::new(title).strong().color(theme::muted()));
                     if title == squad {
                         label.on_hover_text(theme::squad_nearby_note());
                     }
@@ -77,8 +77,13 @@ fn table(app: &mut ChestApp, ui: &mut egui::Ui) {
                 let s = m.summary(view.settings.name_in(m));
                 let counted = view.settings.counts(m.started_at);
                 row.set_selected(view.selected_match.as_deref() == Some(m.id.as_str()));
-                let dim =
-                    |text: String| if counted { RichText::new(text) } else { RichText::new(text).color(theme::MUTED) };
+                let dim = |text: String| {
+                    if counted {
+                        RichText::new(text)
+                    } else {
+                        RichText::new(text).color(theme::muted())
+                    }
+                };
                 row.col(|ui| {
                     let when = m
                         .started_at
@@ -100,9 +105,9 @@ fn table(app: &mut ChestApp, ui: &mut egui::Ui) {
                 });
                 row.col(|ui| {
                     ui.label(RichText::new(s.mine().to_string()).strong().color(if counted {
-                        theme::GOLD
+                        theme::gold()
                     } else {
-                        theme::MUTED
+                        theme::muted()
                     }));
                 });
                 row.col(|ui| {
@@ -143,7 +148,7 @@ fn detail(app: &mut ChestApp, ui: &mut egui::Ui, m: &MatchRecord) {
             ui.label(theme::caption(trf("placed #{0} of {1}", &[&p, &n])));
         }
         if let Some(e) = m.eliminations {
-            let word = plural(u64::from(e), "elimination", "eliminations", ["килл", "килла", "киллов"]);
+            let word = plural(u64::from(e), "elimination", "eliminations");
             ui.label(theme::caption(format!("{e} {word}")));
         }
         ui.label(theme::caption(trf("{0} min", &[&format!("{:.1}", m.length_minutes())])));
@@ -165,7 +170,7 @@ fn detail(app: &mut ChestApp, ui: &mut egui::Ui, m: &MatchRecord) {
         if ui.button(tr("Show replay file")).clicked() {
             reveal(app, &m.file_name);
         }
-        if ui.button(RichText::new(tr("Remove from list")).color(theme::WARN)).clicked() {
+        if ui.button(RichText::new(tr("Remove from list")).color(theme::warn())).clicked() {
             app.store.remove(&m.id);
             app.selected_match = None;
             app.save_store();
@@ -179,13 +184,13 @@ fn detail(app: &mut ChestApp, ui: &mut egui::Ui, m: &MatchRecord) {
         } else {
             trf("No player named \"{0}\" in this match.", &[&nick])
         };
-        ui.label(RichText::new(message).color(theme::WARN));
+        ui.label(RichText::new(message).color(theme::warn()));
         return;
     }
 
     ui.columns(2, |cols| {
         let me = m.me(&nick);
-        cols[0].label(RichText::new(trf("You: {0} chests", &[&s.mine()])).strong().color(theme::GOLD));
+        cols[0].label(RichText::new(trf("You: {0} chests", &[&s.mine()])).strong().color(theme::gold()));
         cols[0].label(theme::caption(trf("Times are {0}.", &[&m.clock_origin()])));
         if let Some(me) = me {
             timeline(&mut cols[0], m, me);
@@ -193,7 +198,7 @@ fn detail(app: &mut ChestApp, ui: &mut egui::Ui, m: &MatchRecord) {
         let treasures = m.treasures(&nick);
         if !treasures.is_empty() {
             cols[0].add_space(6.0);
-            cols[0].label(RichText::new(trf("Treasures: {0}", &[&treasures.len()])).strong().color(theme::TREASURE));
+            cols[0].label(RichText::new(trf("Treasures: {0}", &[&treasures.len()])).strong().color(theme::treasure()));
             for t in treasures {
                 let how = |broken: bool| if broken { tr("broken") } else { tr("opened") };
                 let from = match &t.source {
@@ -214,7 +219,7 @@ fn detail(app: &mut ChestApp, ui: &mut egui::Ui, m: &MatchRecord) {
         } else {
             trf("Teammates: at least {0} chests", &[&s.mates])
         };
-        cols[1].label(RichText::new(heading).strong().color(theme::SQUAD));
+        cols[1].label(RichText::new(heading).strong().color(theme::squad()));
         if s.teammates.is_empty() {
             cols[1].label(theme::caption(tr("Solo, or teammates were never near you.")));
         }
@@ -240,7 +245,7 @@ fn detail(app: &mut ChestApp, ui: &mut egui::Ui, m: &MatchRecord) {
         if !m.linked_from.is_empty() {
             cols[1].label(
                 RichText::new(trf("Filled in from {0}'s replay of this match.", &[&m.linked_from.join(", ")]))
-                    .color(theme::OPENED),
+                    .color(theme::opened()),
             );
         } else if !all_exact {
             cols[1].label(theme::caption(theme::squad_nearby_note()));
@@ -263,8 +268,9 @@ fn timeline(ui: &mut egui::Ui, m: &MatchRecord, player: &PlayerChests) {
         for (e, opened) in player.in_order() {
             ui.monospace(m.clock(e.time));
             if opened {
-                let label = ui
-                    .label(RichText::new(if e.from_loot { tr("opened*") } else { tr("opened") }).color(theme::OPENED));
+                let label = ui.label(
+                    RichText::new(if e.from_loot { tr("opened*") } else { tr("opened") }).color(theme::opened()),
+                );
                 if e.from_loot {
                     label.on_hover_text(tr(
                         "The replay lost this open: its loot landed at your feet with no chest recorded there, \
@@ -272,7 +278,7 @@ fn timeline(ui: &mut egui::Ui, m: &MatchRecord, player: &PlayerChests) {
                     ));
                 }
             } else {
-                ui.label(RichText::new(if e.in_vehicle { tr("rammed") } else { tr("broke") }).color(theme::BROKEN));
+                ui.label(RichText::new(if e.in_vehicle { tr("rammed") } else { tr("broke") }).color(theme::broken()));
             }
             ui.label(theme::chest_kind(e.kind));
             ui.end_row();

@@ -212,7 +212,7 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
         "Positions are where the chest was opened from or where its loot burst out. Drag to pan, scroll to zoom.",
     )));
     if let Some(error) = &app.map_ui.picture_error {
-        ui.label(RichText::new(error).color(theme::BROKEN));
+        ui.label(RichText::new(error).color(theme::broken()));
     }
 
     let settings = app.settings.clone();
@@ -248,7 +248,7 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
 
     if markers.is_empty() {
         ui.add_space(20.0);
-        ui.label(RichText::new(tr("Nothing to show yet.")).color(theme::MUTED));
+        ui.label(RichText::new(tr("Nothing to show yet.")).color(theme::muted()));
         if scope == Scope::Selected && app.selected_match.is_none() {
             ui.label(theme::caption(tr("Pick a match on the Matches page first.")));
         }

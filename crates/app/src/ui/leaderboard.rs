@@ -142,7 +142,7 @@ fn sort_arrow(ui: &mut egui::Ui, down: bool) {
     let c = rect.center();
     let (tip, back) = if down { (3.5, -2.5) } else { (-3.5, 2.5) };
     let points = vec![c + egui::vec2(0.0, tip), c + egui::vec2(-4.0, back), c + egui::vec2(4.0, back)];
-    ui.painter().add(egui::Shape::convex_polygon(points, theme::GOLD, egui::Stroke::NONE));
+    ui.painter().add(egui::Shape::convex_polygon(points, theme::gold(), egui::Stroke::NONE));
 }
 
 fn local(ts: i64, format: &str) -> String {
@@ -191,7 +191,7 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
     let Some(board) = &state.board else {
         ui.add_space(8.0);
         match &state.error {
-            Some(e) => ui.label(RichText::new(trf("Could not reach the server: {0}", &[e])).color(theme::WARN)),
+            Some(e) => ui.label(RichText::new(trf("Could not reach the server: {0}", &[e])).color(theme::warn())),
             None => ui.label(theme::caption(tr("Loading..."))),
         };
         return;
@@ -209,7 +209,7 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
     };
     ui.label(theme::caption(since));
     if let Some(e) = &state.error {
-        ui.label(RichText::new(trf("Could not update: {0}", &[e])).color(theme::WARN));
+        ui.label(RichText::new(trf("Could not update: {0}", &[e])).color(theme::warn()));
     }
     ui.add_space(6.0);
     if entries.is_empty() {
@@ -229,12 +229,12 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
         .column(Column::remainder())
         .header(26.0, |mut h| {
             h.col(|ui| {
-                ui.label(RichText::new("#").strong().color(theme::MUTED));
+                ui.label(RichText::new("#").strong().color(theme::muted()));
             });
             for sort in columns {
                 h.col(|ui| {
                     let active = state.sort == sort;
-                    let color = if active { theme::TEXT } else { theme::MUTED };
+                    let color = if active { theme::text() } else { theme::muted() };
                     let text = RichText::new(sort.title()).strong().color(color);
                     // Numbers line up on the right, so their arrow goes left of the title.
                     let layout = if sort == Sort::Player {
@@ -263,7 +263,7 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
                 let paint = |text: String| {
                     let text = RichText::new(text);
                     if e.me {
-                        text.strong().color(theme::GOLD)
+                        text.strong().color(theme::gold())
                     } else {
                         text
                     }
@@ -272,7 +272,7 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| ui.label(paint(text)));
                 };
                 row.col(|ui| {
-                    ui.label(RichText::new(format!("{}", i + 1)).color(theme::MUTED));
+                    ui.label(RichText::new(format!("{}", i + 1)).color(theme::muted()));
                 });
                 row.col(|ui| {
                     let name = if e.me { trf("{0} (you)", &[&e.name]) } else { e.name.clone() };

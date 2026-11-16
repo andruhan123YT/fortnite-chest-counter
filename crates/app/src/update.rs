@@ -186,6 +186,12 @@ pub fn remove_leftover() {
     }
 }
 
+/// Whether an update may install without the player: never in the middle of a game or
+/// while the player looks at the window.
+pub fn may_install_alone(fortnite_running: bool, window_visible: bool, counting: bool) -> bool {
+    !fortnite_running && !window_visible && !counting
+}
+
 pub fn version_text((major, minor, patch): Version) -> String {
     format!("{major}.{minor}.{patch}")
 }
@@ -197,6 +203,12 @@ pub struct Status {
     pub checking: bool,
     pub last_checked: Option<chrono::DateTime<chrono::Local>>,
     pub error: Option<String>,
+    /// The release the app tried to install by itself, so a failed one is not retried.
+    pub auto_tried: Option<Version>,
+    /// The install running now was started by the app, not the player.
+    pub auto: bool,
+    /// When the app last looked whether it may install by itself.
+    pub auto_checked: Option<std::time::Instant>,
     /// Download progress while an update is being installed.
     pub installing: Option<f32>,
 }
@@ -283,6 +295,14 @@ fn run(mut enabled: bool, commands: Receiver<Command>, events: Sender<Event>, re
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn installs_alone_only_out_of_the_game_and_out_of_sight() {
+        assert!(may_install_alone(false, false, false));
+        assert!(!may_install_alone(true, false, false), "Fortnite runs");
+        assert!(!may_install_alone(false, true, false), "the window is open");
+        assert!(!may_install_alone(false, false, true), "a match is being counted");
+    }
 
     #[test]
     fn reads_versions() {

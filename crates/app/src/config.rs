@@ -130,6 +130,8 @@ pub struct Settings {
     pub dim_map: bool,
     /// Look for a newer release on GitHub every few minutes.
     pub check_updates: bool,
+    /// Install a release found that way by itself, once Fortnite is closed.
+    pub auto_update: bool,
     /// The sidebar shows icons only.
     pub compact_nav: bool,
     /// Share the player's own chest counts with the sync server and get squadmates' back.
@@ -144,6 +146,8 @@ pub struct Settings {
     pub install_id: String,
     /// The overlay page for OBS.
     pub stream: crate::stream::StreamSettings,
+    /// The chest count in the player's Discord status.
+    pub discord: crate::discord::DiscordSettings,
     /// The version whose "What's new" notes the player last closed.
     pub notes_seen: String,
     /// Epic id of the active account, whose newest name is `nick`. Empty until a replay
@@ -154,7 +158,11 @@ pub struct Settings {
     /// Epic ids of replay authors the player said are not theirs: their matches are
     /// neither counted nor sent.
     pub not_mine: Vec<String>,
+    /// Profiles of accounts the player later said are not theirs, kept so that changing the
+    /// answer back brings their base, edits and prizes back.
+    pub set_aside: BTreeMap<String, Profile>,
     pub language: crate::i18n::Lang,
+    pub theme: crate::theme::ColorTheme,
 }
 
 impl Default for Settings {
@@ -178,6 +186,7 @@ impl Default for Settings {
             breaks: BreakConfig::default(),
             dim_map: false,
             check_updates: true,
+            auto_update: true,
             compact_nav: false,
             online: true,
             online_lines_all: true,
@@ -185,11 +194,14 @@ impl Default for Settings {
             leaderboard_name: true,
             install_id: String::new(),
             stream: Default::default(),
+            discord: Default::default(),
             notes_seen: String::new(),
             account_id: String::new(),
             profiles: BTreeMap::new(),
             not_mine: Vec::new(),
+            set_aside: BTreeMap::new(),
             language: crate::i18n::Lang::En,
+            theme: crate::theme::ColorTheme::Midnight,
         }
     }
 }
@@ -240,6 +252,33 @@ impl Settings {
         self.not_mine.retain(|n| n != id);
     }
 
+    /// The account `id`, named `name`, is one of the player's: it gets its profile back if
+    /// it had one, otherwise a new one. The active account is left as it is.
+    pub fn mark_mine(&mut self, id: &str, name: &str) {
+        if id.is_empty() || id == self.account_id {
+            return;
+        }
+        self.not_mine.retain(|n| n != id);
+        let kept = self.set_aside.remove(id);
+        self.profiles
+            .entry(id.to_owned())
+            .or_insert_with(|| kept.unwrap_or_else(|| Profile { name: name.to_owned(), ..Default::default() }));
+    }
+
+    /// The account `id` is not the player's: its matches stop counting, and its profile, if
+    /// any, is set aside rather than deleted. The active account is left as it is.
+    pub fn mark_not_mine(&mut self, id: &str) {
+        if id.is_empty() || id == self.account_id {
+            return;
+        }
+        if let Some(profile) = self.profiles.remove(id) {
+            self.set_aside.insert(id.to_owned(), profile);
+        }
+        if !self.not_mine.iter().any(|n| n == id) {
+            self.not_mine.push(id.to_owned());
+        }
+    }
+
     /// The player's own accounts on this PC, the active one first.
     pub fn my_accounts(&self) -> impl Iterator<Item = &str> {
         std::iter::once(self.account_id.as_str())
@@ -276,6 +315,12 @@ impl Settings {
             (Some(_), None) => false,
         }
     }
+}
+
+/// A debug build running on a copy of the data (`FCC_DATA_DIR`): it must leave what belongs
+/// to the installed app alone, such as autostart, the desktop shortcut and notifications.
+pub fn on_test_data() -> bool {
+    cfg!(debug_assertions) && std::env::var_os("FCC_DATA_DIR").is_some()
 }
 
 pub fn data_dir() -> PathBuf {
@@ -432,6 +477,30 @@ pub fn parse_since(text: &str) -> Option<NaiveDateTime> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn changing_an_answer_back_keeps_the_profile() {
+        let mut s = super::Settings { account_id: "main".into(), ..Default::default() };
+        s.mark_mine("alt", "Alt");
+        let alt = s.profiles.get_mut("alt").unwrap();
+        alt.base_count = 1000;
+        alt.adjustment = 25;
+        alt.received.insert("gold".into(), 2);
+        let before = alt.clone();
+
+        s.mark_not_mine("alt");
+        assert!(!s.profiles.contains_key("alt"));
+        assert!(s.knows_account("alt"));
+        assert_eq!(s.set_aside.get("alt"), Some(&before));
+
+        s.mark_mine("alt", "Renamed");
+        assert_eq!(s.profiles.get("alt"), Some(&before));
+        assert!(s.set_aside.is_empty() && s.not_mine.is_empty());
+
+        // The active account never changes hands.
+        s.mark_not_mine("main");
+        assert!(s.not_mine.is_empty());
+    }
+
     use super::*;
 
     #[test]

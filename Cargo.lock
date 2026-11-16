@@ -362,7 +362,7 @@ dependencies = [
 
 [[package]]
 name = "chests"
-version = "1.1.4"
+version = "1.1.5"
 dependencies = [
  "fnreplay",
  "serde",
@@ -945,7 +945,7 @@ dependencies = [
 
 [[package]]
 name = "fnreplay"
-version = "1.1.4"
+version = "1.1.5"
 dependencies = [
  "aes",
  "oozextract",
@@ -1002,7 +1002,7 @@ checksum = "aa9a19cbb55df58761df49b23516a86d432839add4af60fc256da840f66ed35b"
 
 [[package]]
 name = "fortnite-chest-counter"
-version = "1.1.4"
+version = "1.1.5"
 dependencies = [
  "chests",
  "chrono",
@@ -1019,6 +1019,7 @@ dependencies = [
  "sha2",
  "tauri-winrt-notification",
  "tray-icon",
+ "unicode-bidi",
  "ureq",
  "windows",
  "windows-sys 0.61.2",
@@ -3129,6 +3130,12 @@ name = "typenum"
 version = "1.20.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6f5e870be6c3b371b77fe0ee0bafb859fa4964b4404c27de1d380043c4dda20"
+
+[[package]]
+name = "unicode-bidi"
+version = "0.3.18"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5c1cb5db39152898a79168971543b1cb5020dff7fe43c8dc468b0885f5e29df5"
 
 [[package]]
 name = "unicode-general-category"

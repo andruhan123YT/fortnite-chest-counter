@@ -39,7 +39,7 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
     ui.add_space(10.0);
 
     if app.store.squad_replays.is_empty() {
-        ui.label(RichText::new(tr("No teammate replays yet.")).color(theme::MUTED));
+        ui.label(RichText::new(tr("No teammate replays yet.")).color(theme::muted()));
         ui.label(theme::caption(
             tr("Teammates find theirs in %LOCALAPPDATA%\\FortniteGame\\Saved\\Demos. The newest ones are the last matches."),
         ));
@@ -68,7 +68,7 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
         .header(24.0, |mut h| {
             for title in [tr("Recorded"), tr("By"), tr("Your match"), ""] {
                 h.col(|ui| {
-                    ui.label(RichText::new(title).strong().color(theme::MUTED));
+                    ui.label(RichText::new(title).strong().color(theme::muted()));
                 });
             }
         })
@@ -81,7 +81,7 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
                     row.col(|ui| {
                         ui.label(owner);
                         if *stale {
-                            ui.label(RichText::new(tr("outdated")).color(theme::WARN)).on_hover_text(tr(
+                            ui.label(RichText::new(tr("outdated")).color(theme::warn())).on_hover_text(tr(
                                 "Analyzed by an older version of the app. Add the file again to update it: \
                                  counts and chest times may be off until then.",
                             ));
@@ -93,18 +93,18 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
                                 0 => tr("linked, your replay already saw everything").to_string(),
                                 n => trf("linked, +{0} chests your replay missed", &[&n]),
                             };
-                            if ui.link(RichText::new(text).color(theme::OPENED)).clicked() {
+                            if ui.link(RichText::new(text).color(theme::opened())).clicked() {
                                 open = Some(match_record.clone());
                             }
                         }
                         SquadLink::Unmatched => {
-                            ui.label(RichText::new(tr("no replay of yours from this match")).color(theme::MUTED));
+                            ui.label(RichText::new(tr("no replay of yours from this match")).color(theme::muted()));
                         }
                         SquadLink::Own => {
-                            ui.label(RichText::new(tr("this is your own replay")).color(theme::WARN));
+                            ui.label(RichText::new(tr("this is your own replay")).color(theme::warn()));
                         }
                         SquadLink::NoMatchId => {
-                            ui.label(RichText::new(tr("no match id in this replay")).color(theme::WARN));
+                            ui.label(RichText::new(tr("no match id in this replay")).color(theme::warn()));
                         }
                     });
                     row.col(|ui| {

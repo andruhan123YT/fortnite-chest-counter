@@ -61,7 +61,7 @@ fn hero(app: &ChestApp, ui: &mut egui::Ui) {
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 ui.label(
-                    RichText::new(theme::thousands(t.mine())).font(theme::font(theme::BOLD, 40.0)).color(theme::GOLD),
+                    RichText::new(theme::thousands(t.mine())).font(theme::font(theme::BOLD, 40.0)).color(theme::gold()),
                 );
                 ui.label(theme::caption(tr("in total")));
             });
@@ -71,7 +71,7 @@ fn hero(app: &ChestApp, ui: &mut egui::Ui) {
             ui.vertical(|ui| {
                 ui.spacing_mut().item_spacing.y = 0.0;
                 let value = last.map_or_else(|| "-".to_string(), |n| n.to_string());
-                ui.label(RichText::new(value).font(theme::font(theme::BOLD, 40.0)).color(theme::TEXT));
+                ui.label(RichText::new(value).font(theme::font(theme::BOLD, 40.0)).color(theme::text()));
                 ui.label(theme::caption(tr("last match")));
             });
         });
@@ -120,21 +120,21 @@ fn last_days(ui: &mut egui::Ui, days: &std::collections::BTreeMap<chrono::NaiveD
                 egui::pos2(x - bar_w / 2.0, bottom - height.max(2.0)),
                 egui::pos2(x + bar_w / 2.0, bottom),
             );
-            let color = if day == today { theme::GOLD } else { theme::GOLD.gamma_multiply(0.45) };
+            let color = if day == today { theme::gold() } else { theme::gold().gamma_multiply(0.45) };
             painter.rect_filled(bar, egui::CornerRadius::same(4), color);
             painter.text(
                 egui::pos2(x, bar.top() - 2.0),
                 egui::Align2::CENTER_BOTTOM,
                 n.to_string(),
                 theme::font(theme::SEMIBOLD, 11.5),
-                theme::TEXT,
+                theme::text(),
             );
             painter.text(
                 egui::pos2(x, rect.bottom()),
                 egui::Align2::CENTER_BOTTOM,
                 day.format(&date_format(&day, "%a")).to_string(),
                 egui::FontId::proportional(11.0),
-                theme::MUTED,
+                theme::muted(),
             );
         }
     });
@@ -157,14 +157,14 @@ fn dashboard_tiles(
     let squad = t.with_squad();
     let rows: [[Tile; 2]; 3] = [
         [
-            (tr("Today").into(), theme::thousands(today_n), theme::OPENED, None),
+            (tr("Today").into(), theme::thousands(today_n), theme::opened(), None),
             (
                 best_day.map_or_else(
                     || tr("Best day").into(),
                     |(d, _)| trf("Best day · {0}", &[&d.format(&date_format(d, "%d %b"))]),
                 ),
                 theme::thousands(best_day.map_or(0, |(_, n)| *n)),
-                theme::GOLD,
+                theme::gold(),
                 None,
             ),
         ],
@@ -172,26 +172,22 @@ fn dashboard_tiles(
             (
                 tr("Per match").into(),
                 format!("{:.1}", t.per_match()),
-                theme::TEXT,
-                Some(format!(
-                    "{} {}",
-                    t.counted_matches,
-                    plural(t.counted_matches as u64, "match", "matches", ["матч", "матча", "матчей"])
-                )),
+                theme::text(),
+                Some(format!("{} {}", t.counted_matches, plural(t.counted_matches as u64, "match", "matches"))),
             ),
-            (tr("Best match").into(), best.to_string(), theme::TEXT, None),
+            (tr("Best match").into(), best.to_string(), theme::text(), None),
         ],
         [
             (
                 tr("Squad").into(),
                 theme::squad_count(t.teammates as u64),
-                theme::SQUAD,
+                theme::squad(),
                 Some(tr("seen near you").into()),
             ),
             (
                 tr("Treasures").into(),
                 theme::thousands(t.treasures as u64),
-                theme::TREASURE,
+                theme::treasure(),
                 Some(trf("expected {0}", &[&format!("{:.1}", t.counted_squad() as f64 * any_reward_rate())])),
             ),
         ],
@@ -208,7 +204,7 @@ fn dashboard_tiles(
         ui,
         tr("Pirate Shop Access chance"),
         &theme::percent(chance_at_least_one(squad, PIRATE_SHOP_ACCESS.one_in)),
-        theme::OPENED,
+        theme::opened(),
         Some(&trf(
             "with squad · solo {0} · 1 in {1}",
             &[
@@ -240,7 +236,7 @@ fn warnings(app: &mut ChestApp, ui: &mut egui::Ui) {
     if !app.settings.replay_dir.is_dir() {
         theme::card().show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new(tr("The replay folder does not exist.")).color(theme::WARN));
+            ui.label(RichText::new(tr("The replay folder does not exist.")).color(theme::warn()));
             ui.label(theme::caption(trf(
                 "{0} was not found. Check the folder in Settings and make sure replay recording is on in Fortnite.",
                 &[&app.settings.replay_dir.display()],
@@ -261,7 +257,7 @@ fn warnings(app: &mut ChestApp, ui: &mut egui::Ui) {
                     "{0} counted match(es) do not contain {1}.",
                     &[&app.totals.matches_without_player, &who],
                 ))
-                .color(theme::WARN),
+                .color(theme::warn()),
             );
             ui.label(theme::caption(tr("Open the match to see who was in it.")));
         });
@@ -272,7 +268,7 @@ fn warnings(app: &mut ChestApp, ui: &mut egui::Ui) {
     if unhealthy > 0 {
         theme::card().show(ui, |ui| {
             ui.set_width(ui.available_width());
-            ui.label(RichText::new(tr("Recent replays did not decode cleanly.")).color(theme::WARN));
+            ui.label(RichText::new(tr("Recent replays did not decode cleanly.")).color(theme::warn()));
             ui.label(theme::caption(tr(
                 "A Fortnite update probably changed the replay format. Counts may be low until the parser is updated.",
             )));
@@ -313,15 +309,15 @@ fn latest_match(app: &mut ChestApp, ui: &mut egui::Ui) {
                 ui.label(theme::caption(trf("{0} min", &[&format!("{:.0}", m.length_minutes())])));
             });
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("+{}", s.mine())).size(26.0).strong().color(theme::GOLD));
-                ui.label(RichText::new(trf("opened {0}", &[&s.opened])).color(theme::OPENED));
-                ui.label(RichText::new(trf("broken {0}", &[&s.broken])).color(theme::BROKEN));
+                ui.label(RichText::new(format!("+{}", s.mine())).size(26.0).strong().color(theme::gold()));
+                ui.label(RichText::new(trf("opened {0}", &[&s.opened])).color(theme::opened()));
+                ui.label(RichText::new(trf("broken {0}", &[&s.broken])).color(theme::broken()));
                 if !s.teammates.is_empty() {
-                    ui.label(RichText::new(trf("squad +{0}+", &[&s.mates])).color(theme::SQUAD))
+                    ui.label(RichText::new(trf("squad +{0}+", &[&s.mates])).color(theme::squad()))
                         .on_hover_text(theme::squad_nearby_note());
                 }
                 if s.treasures > 0 {
-                    ui.label(RichText::new(trf("treasure +{0}", &[&s.treasures])).color(theme::TREASURE));
+                    ui.label(RichText::new(trf("treasure +{0}", &[&s.treasures])).color(theme::treasure()));
                 }
             });
             if !app.settings.counts(m.started_at) {
@@ -352,7 +348,7 @@ fn activity(app: &mut ChestApp, ui: &mut egui::Ui) {
         if app.activity.live_matches > 0 {
             ui.label(
                 RichText::new(tr("A match is being played. It will be counted once you are back in the lobby."))
-                    .color(theme::OPENED),
+                    .color(theme::opened()),
             );
         }
         if let Some((file, fraction, _)) = &app.activity.progress {

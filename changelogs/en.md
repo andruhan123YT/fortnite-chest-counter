@@ -1,7 +1,19 @@
 # Changelog
 
 Short notes per version. The app shows the new ones once after an update, and
-Settings > Updates shows them again.
+Settings > About > What's new shows them again. The other files in this folder hold the
+same notes in the other interface languages.
+
+## 1.1.5
+
+- **Updates install automatically.** When a new version is out, the app installs it once Fortnite is closed. Turn it off below or in Settings > About.
+- **16 more languages.** Every language Fortnite has: German, Spanish (Spain and Latin America), French, Italian, Polish, Portuguese (Brazil), Turkish, Indonesian, Vietnamese, Thai, Japanese, Korean, Chinese (Simplified and Traditional) and Arabic. The app starts in the language of Windows; Settings > General switches it.
+- **New Settings.** Categories on the left, a switch for each option, and every change is saved as you make it.
+- **Six color themes.** Midnight stays the default; Graphite, Deep sea, Amethyst, OLED (true black) and the light Parchment are in Settings > General.
+- **Your chests in Discord.** While Fortnite runs, your Discord profile shows your total, today's chests and the match timer, with a button for friends to get the app. Settings > OBS and Discord picks what to show or turns it off.
+- **About.** Version, updates, help and the open-source licenses in one place. Copy app info puts what a bug report needs on the clipboard.
+- **Change your answer about an account.** Settings > Counting lists the other accounts that played on this PC. One marked as yours or not by mistake can be switched back, and its base and prizes are kept.
+- **Star on GitHub** link in the menu.
 
 ## 1.1.4
 

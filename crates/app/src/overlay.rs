@@ -189,7 +189,7 @@ fn resized_scale(scale: f32, size: egui::Vec2, moved: egui::Vec2, axis: Axis) ->
 /// long it has been going since the game loaded it.
 fn live_badge(ui: &mut egui::Ui, scale: f32, elapsed: Option<i64>) {
     egui::Frame::new()
-        .fill(egui::Color32::from_rgba_unmultiplied(94, 194, 122, 36))
+        .fill(theme::opened().gamma_multiply(0.14))
         .corner_radius(egui::CornerRadius::same((8.0 * scale) as u8))
         .inner_margin(egui::Margin::symmetric((6.0 * scale) as i8, (1.0 * scale) as i8))
         .show(ui, |ui| {
@@ -197,10 +197,12 @@ fn live_badge(ui: &mut egui::Ui, scale: f32, elapsed: Option<i64>) {
             ui.horizontal(|ui| {
                 // Drawn: the bundled fonts have no bullet glyph.
                 let (dot, _) = ui.allocate_exact_size(egui::vec2(6.0, 10.0) * scale, Sense::hover());
-                ui.painter().circle_filled(dot.center(), 3.0 * scale, theme::OPENED);
+                ui.painter().circle_filled(dot.center(), 3.0 * scale, theme::opened());
                 ui.add(
                     egui::Label::new(
-                        RichText::new(tr("IN MATCH")).font(theme::font(theme::BOLD, 9.5 * scale)).color(theme::OPENED),
+                        RichText::new(tr("IN MATCH"))
+                            .font(theme::font(theme::BOLD, 9.5 * scale))
+                            .color(theme::opened()),
                     )
                     .extend(),
                 );
@@ -209,7 +211,7 @@ fn live_badge(ui: &mut egui::Ui, scale: f32, elapsed: Option<i64>) {
                         egui::Label::new(
                             RichText::new(match_clock(secs))
                                 .font(theme::font(theme::BOLD, 9.5 * scale))
-                                .color(theme::TEXT),
+                                .color(theme::text()),
                         )
                         .extend(),
                     );
@@ -337,9 +339,9 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
     let mine = theme::thousands(n.total);
     let last = n.last_match.to_string();
     let stats = [
-        (tr("TODAY"), theme::thousands(n.today), theme::TEXT),
-        (tr("SQUAD"), theme::thousands(n.squad), theme::SQUAD),
-        (tr("TREASURES"), n.treasures.to_string(), theme::TREASURE),
+        (tr("TODAY"), theme::thousands(n.today), theme::text()),
+        (tr("SQUAD"), theme::thousands(n.squad), theme::squad()),
+        (tr("TREASURES"), n.treasures.to_string(), theme::treasure()),
     ];
     let live = n.in_match || n.match_secs.is_some();
     if n.match_secs.is_some() {
@@ -373,7 +375,7 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
             done.at = ui.ctx().input(|i| i.viewport().outer_rect).map(|r| r.min);
         }
         ui.style_mut().interaction.selectable_labels = false;
-        let frame = egui::Frame::new().fill(theme::BG).inner_margin(egui::Margin::same(margin as i8));
+        let frame = egui::Frame::new().fill(theme::bg()).inner_margin(egui::Margin::same(margin as i8));
         egui::CentralPanel::default().frame(frame).show(ui, |ui| {
             // Measured in its own block: the panel itself always fills the window, so its
             // size says nothing about the text and would grow the window every frame.
@@ -384,7 +386,7 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
                 let text = |t: &str, family: &str, size: f32, color: egui::Color32| {
                     egui::Label::new(RichText::new(t).font(theme::font(family, size * scale)).color(color)).extend()
                 };
-                let caption = |t: &str| text(t, theme::SEMIBOLD, 9.5, theme::MUTED);
+                let caption = |t: &str| text(t, theme::SEMIBOLD, 9.5, theme::muted());
                 ui.horizontal(|ui| {
                     ui.add(caption(tr("CHESTS")));
                     if live {
@@ -396,20 +398,20 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
                     ui.spacing_mut().item_spacing.x = 18.0 * scale;
                     ui.vertical(|ui| {
                         ui.spacing_mut().item_spacing.y = 0.0;
-                        ui.add(text(&mine, theme::BOLD, 32.0, theme::GOLD));
+                        ui.add(text(&mine, theme::BOLD, 32.0, theme::gold()));
                         ui.add(caption(tr("TOTAL")));
                     });
                     // The last match in a tile of its own.
                     egui::Frame::new()
-                        .fill(theme::CARD)
-                        .stroke(Stroke::new(1.0, theme::CARD_HOVER))
+                        .fill(theme::card_color())
+                        .stroke(Stroke::new(1.0, theme::card_hover()))
                         .corner_radius(egui::CornerRadius::same((6.0 * scale) as u8))
                         .inner_margin(egui::Margin::symmetric((10.0 * scale) as i8, (4.0 * scale) as i8))
                         .show(ui, |ui| {
                             // As wide as its text: centered layouts take all the room they get.
                             let width = |t: &str, family: &str, size: f32| {
                                 ui.painter()
-                                    .layout_no_wrap(t.to_owned(), theme::font(family, size * scale), theme::TEXT)
+                                    .layout_no_wrap(t.to_owned(), theme::font(family, size * scale), theme::text())
                                     .size()
                                     .x
                             };
@@ -420,7 +422,7 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
                             )));
                             ui.vertical_centered(|ui| {
                                 ui.spacing_mut().item_spacing.y = 0.0;
-                                ui.add(text(&last, theme::BOLD, 22.0, theme::TEXT));
+                                ui.add(text(&last, theme::BOLD, 22.0, theme::text()));
                                 ui.add(caption(tr("LAST MATCH")));
                             });
                         });
@@ -441,22 +443,22 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
                 let y = r.top() - 3.0 * scale;
                 ui.painter().line_segment(
                     [egui::pos2(r.left(), y), egui::pos2(ui.min_rect().right(), y)],
-                    Stroke::new(1.0, theme::CARD_HOVER),
+                    Stroke::new(1.0, theme::card_hover()),
                 );
             });
             done.content = Some(fit(text.response.rect.size(), margin, scale));
         });
         let painter = ui.painter();
         // A thin border; while it is being moved, a gold frame.
-        painter.rect_stroke(whole, 0.0, Stroke::new(1.0, theme::CARD_HOVER), StrokeKind::Inside);
+        painter.rect_stroke(whole, 0.0, Stroke::new(1.0, theme::card_hover()), StrokeKind::Inside);
         if editing {
-            painter.rect_stroke(whole, 0.0, Stroke::new(2.0, theme::GOLD), StrokeKind::Inside);
+            painter.rect_stroke(whole, 0.0, Stroke::new(2.0, theme::gold()), StrokeKind::Inside);
             let grip = egui::Rect::from_min_size(whole.max - egui::vec2(GRIP, GRIP), egui::vec2(GRIP, GRIP));
             for i in 1..=3 {
                 let d = i as f32 * 4.0;
                 painter.line_segment(
                     [egui::pos2(grip.max.x - d, grip.max.y - 2.0), egui::pos2(grip.max.x - 2.0, grip.max.y - d)],
-                    Stroke::new(1.5, theme::GOLD),
+                    Stroke::new(1.5, theme::gold()),
                 );
             }
             let right_edge = egui::Rect::from_min_max(
@@ -490,7 +492,7 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
         // mouse through and the small lock window below takes the click instead.
         let lock_at = egui::Rect::from_min_size(whole.min + lock_offset(whole.size()), egui::Vec2::splat(LOCK_SIDE));
         let (glyph, color) =
-            if editing { (theme::icon::UNLOCK, theme::GOLD) } else { (theme::icon::LOCK, theme::MUTED) };
+            if editing { (theme::icon::UNLOCK, theme::gold()) } else { (theme::icon::LOCK, theme::muted()) };
         let icon =
             egui::Button::new(theme::icon_text(glyph, if editing { "U" } else { "L" }, 14.0).color(color)).frame(false);
         if ui.put(lock_at, icon).on_hover_text(tr("Lock it in place")).clicked() {
@@ -500,7 +502,7 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
         if editing {
             let close_at = lock_at.translate(egui::vec2(-(LOCK_SIDE + 2.0), 0.0));
             let cross =
-                egui::Button::new(theme::icon_text(theme::icon::CLOSE, "X", 12.0).color(theme::GOLD)).frame(false);
+                egui::Button::new(theme::icon_text(theme::icon::CLOSE, "X", 12.0).color(theme::gold())).frame(false);
             if ui
                 .put(close_at, cross)
                 .on_hover_text(tr("Hide the overlay (Settings > Overlay or the tray menu brings it back)"))
@@ -576,9 +578,9 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
         .with_position(if parked { LOCK_PARKED } else { pos + lock_offset(size) });
     let unlock = show_window(ctx, ViewportId::from_hash_of("overlay_lock"), lock_builder, |ui| {
         let mut clicked = false;
-        egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::BG)).show(ui, |ui| {
+        egui::CentralPanel::default().frame(egui::Frame::new().fill(theme::bg())).show(ui, |ui| {
             let icon =
-                egui::Button::new(theme::icon_text(theme::icon::LOCK, "L", 14.0).color(theme::MUTED)).frame(false);
+                egui::Button::new(theme::icon_text(theme::icon::LOCK, "L", 14.0).color(theme::muted())).frame(false);
             clicked = ui.put(ui.max_rect(), icon).on_hover_text(tr("Unlock to move and resize the overlay")).clicked();
         });
         clicked

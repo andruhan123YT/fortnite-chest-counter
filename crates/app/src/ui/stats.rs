@@ -33,20 +33,20 @@ fn numbers(app: &ChestApp, ui: &mut egui::Ui) {
             theme::Stat {
                 label: tr("Counted matches"),
                 value: t.counted_matches.to_string(),
-                color: theme::TEXT,
+                color: theme::text(),
                 note: Some(trf("{0} minutes played", &[&format!("{:.0}", t.minutes)])),
             },
             theme::Stat {
                 label: tr("Per match"),
                 value: format!("{:.1}", t.per_match()),
-                color: theme::GOLD,
+                color: theme::gold(),
                 note: Some(trf("{0} per minute", &[&format!("{:.2}", t.per_minute())])),
             },
-            theme::Stat { label: tr("Best match"), value: best.to_string(), color: theme::GOLD, note: None },
+            theme::Stat { label: tr("Best match"), value: best.to_string(), color: theme::gold(), note: None },
             theme::Stat {
                 label: tr("Broken"),
                 value: t.broken.to_string(),
-                color: theme::BROKEN,
+                color: theme::broken(),
                 note: Some(trf(
                     "{0} by vehicle · {1} with pickaxe",
                     &[&t.broken_by_vehicle, &(t.broken - t.broken_by_vehicle)],
@@ -65,8 +65,8 @@ fn numbers(app: &ChestApp, ui: &mut egui::Ui) {
             ui.end_row();
             for (key, (opened, broken)) in &t.by_kind {
                 ui.label(theme::chest_kind(key.kind()));
-                ui.label(RichText::new(opened.to_string()).color(theme::OPENED));
-                ui.label(RichText::new(broken.to_string()).color(theme::BROKEN));
+                ui.label(RichText::new(opened.to_string()).color(theme::opened()));
+                ui.label(RichText::new(broken.to_string()).color(theme::broken()));
                 ui.label(RichText::new((opened + broken).to_string()).strong());
                 ui.end_row();
             }
@@ -80,7 +80,7 @@ fn pirate_shop(app: &ChestApp, ui: &mut egui::Ui) {
     let one_in = PIRATE_SHOP_ACCESS.one_in;
     theme::card().show(ui, |ui| {
         ui.set_width(ui.available_width());
-        ui.label(RichText::new(tr("Pirate Shop Access")).size(17.0).strong().color(theme::GOLD));
+        ui.label(RichText::new(tr("Pirate Shop Access")).size(17.0).strong().color(theme::gold()));
         ui.label(theme::caption(trf(
             "1 in {0} per chest, opened or broken. The whole squad gets it when anyone in the squad does. \
              Squadmates who run the app count in full, from their own replays. For the rest, only the chests \
@@ -93,11 +93,11 @@ fn pirate_shop(app: &ChestApp, ui: &mut egui::Ui) {
             ui.label(theme::caption(tr("Chests")));
             ui.label(theme::caption(tr("Chance of at least one")));
             ui.end_row();
-            ui.label(RichText::new(tr("You + squad")).color(theme::SQUAD)).on_hover_text(theme::squad_nearby_note());
+            ui.label(RichText::new(tr("You + squad")).color(theme::squad())).on_hover_text(theme::squad_nearby_note());
             ui.label(theme::squad_count(squad));
             ui.label(RichText::new(theme::percent(chance_at_least_one(squad, one_in))).strong().size(18.0));
             ui.end_row();
-            ui.label(RichText::new(tr("Just you")).color(theme::GOLD));
+            ui.label(RichText::new(tr("Just you")).color(theme::gold()));
             ui.label(theme::thousands(me));
             ui.label(RichText::new(theme::percent(chance_at_least_one(me, one_in))).strong().size(18.0));
             ui.end_row();
@@ -115,14 +115,17 @@ fn pirate_shop(app: &ChestApp, ui: &mut egui::Ui) {
 }
 
 /// Lines of squadmates who run the app, apart from the gold, blue and purple of the
-/// app's own series.
-const SQUADMATE_COLORS: [egui::Color32; 5] = [
+/// app's own series. The last one is the theme's text color, so it shows on light themes too.
+const SQUADMATE_COLORS: [egui::Color32; 4] = [
     egui::Color32::from_rgb(0x4f, 0xd1, 0xc5),
     egui::Color32::from_rgb(0xf2, 0x7e, 0x9c),
     egui::Color32::from_rgb(0x9b, 0xd8, 0x5a),
     egui::Color32::from_rgb(0xf0, 0x9a, 0x4a),
-    egui::Color32::from_rgb(0xe0, 0xe0, 0xe0),
 ];
+
+fn squadmate_color(i: usize) -> egui::Color32 {
+    SQUADMATE_COLORS.get(i % (SQUADMATE_COLORS.len() + 1)).copied().unwrap_or_else(theme::text)
+}
 
 fn rewards(app: &mut ChestApp, ui: &mut egui::Ui) {
     let squad = app.totals.with_squad();
@@ -146,13 +149,13 @@ fn rewards(app: &mut ChestApp, ui: &mut egui::Ui) {
             let expected_any = counted as f64 * any_reward_rate();
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 4.0;
-                ui.label(RichText::new(tr("Any prize, counted matches")).color(theme::TREASURE));
+                ui.label(RichText::new(tr("Any prize, counted matches")).color(theme::treasure()));
                 theme::info_icon(ui, any_prize_help(counted, expected_any, app.totals.treasures as u64));
             });
             ui.label(trf("1 in {0}", &[&format!("{:.0}", 1.0 / any_reward_rate())]));
             ui.label(format!("{expected_any:.2}"));
             ui.label(theme::caption(trf("{0} chests", &[&theme::thousands(counted)])));
-            ui.label(RichText::new(app.totals.treasures.to_string()).strong().color(theme::TREASURE));
+            ui.label(RichText::new(app.totals.treasures.to_string()).strong().color(theme::treasure()));
             ui.label(luck(app.totals.treasures as u32, expected_any));
             ui.end_row();
             for reward in REWARDS {
@@ -179,12 +182,8 @@ fn rewards(app: &mut ChestApp, ui: &mut egui::Ui) {
 
 /// The hover text of the "Any prize" row, in plain words and with the player's numbers.
 fn any_prize_help(chests: u64, expected: f64, got: u64) -> String {
-    let chests = format!(
-        "{} {}",
-        theme::thousands(chests),
-        plural(chests, "chest", "chests", ["сундук", "сундука", "сундуков"])
-    );
-    let got = format!("{} {}", theme::thousands(got), plural(got, "prize", "prizes", ["приз", "приза", "призов"]));
+    let chests = format!("{} {}", theme::thousands(chests), plural(chests, "chest", "chests"));
+    let got = format!("{} {}", theme::thousands(got), plural(got, "prize", "prizes"));
     trf(
         "Shows whether you have been lucky with prizes.\n\n\
          About 1 in {0} chests gives some prize (any of the rewards below), and every chest you or your squad \
@@ -198,15 +197,15 @@ fn any_prize_help(chests: u64, expected: f64, got: u64) -> String {
 
 fn luck(got: u32, expected: f64) -> RichText {
     if expected < 0.05 {
-        return RichText::new(if got > 0 { tr("very lucky") } else { "" }).color(theme::OPENED);
+        return RichText::new(if got > 0 { tr("very lucky") } else { "" }).color(theme::opened());
     }
     let ratio = f64::from(got) / expected.max(1e-9);
     if ratio >= 1.25 {
-        RichText::new(trf("lucky, {0}x expected", &[&format!("{ratio:.1}")])).color(theme::OPENED)
+        RichText::new(trf("lucky, {0}x expected", &[&format!("{ratio:.1}")])).color(theme::opened())
     } else if ratio <= 0.75 {
-        RichText::new(trf("unlucky, {0}x expected", &[&format!("{ratio:.1}")])).color(theme::BROKEN)
+        RichText::new(trf("unlucky, {0}x expected", &[&format!("{ratio:.1}")])).color(theme::broken())
     } else {
-        RichText::new(tr("about as expected")).color(theme::MUTED)
+        RichText::new(tr("about as expected")).color(theme::muted())
     }
 }
 
@@ -232,13 +231,13 @@ fn chart(app: &ChestApp, ui: &mut egui::Ui) {
                     .unwrap_or_default()
             })
             .show(ui, |plot| {
-                plot.line(Line::new(tr("Teammates"), mates).color(theme::SQUAD).width(2.0));
+                plot.line(Line::new(tr("Teammates"), mates).color(theme::squad()).width(2.0));
                 for (i, (name, points)) in squadmates.iter().enumerate() {
                     let points: PlotPoints = points.iter().map(|&(x, y)| [x, y]).collect();
-                    let color = SQUADMATE_COLORS[i % SQUADMATE_COLORS.len()];
+                    let color = squadmate_color(i);
                     plot.line(Line::new(name.as_str(), points).color(color).width(1.6));
                 }
-                plot.line(Line::new(tr("Mine"), mine).color(theme::GOLD).width(2.5));
+                plot.line(Line::new(tr("Mine"), mine).color(theme::gold()).width(2.5));
             });
         if !squadmates.is_empty() {
             ui.label(theme::caption(tr(

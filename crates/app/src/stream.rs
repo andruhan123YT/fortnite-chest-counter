@@ -241,7 +241,8 @@ fn respond(request: &str, port: u16, data: &Snapshot) -> Vec<u8> {
                 ("SQUAD", tr("SQUAD")),
                 ("TREASURES", tr("TREASURES")),
             ] {
-                page = page.replace(&format!(">{english}<"), &format!(">{label}<"));
+                // The browser lays out Arabic itself.
+                page = page.replace(&format!(">{english}<"), &format!(">{}<", crate::i18n::native(label)));
             }
             reply("200 OK", "text/html; charset=utf-8", page.as_bytes())
         }

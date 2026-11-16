@@ -56,7 +56,9 @@ impl Page {
 }
 
 /// Sidebar widths, open and folded to icons.
+/// The side menu's width when open: at least this, wider when a language's page names need it.
 const NAV_WIDE: f32 = 172.0;
+const NAV_WIDEST: f32 = 250.0;
 const NAV_NARROW: f32 = 54.0;
 
 #[derive(Debug, Default)]
@@ -102,6 +104,7 @@ pub struct ChestApp {
     /// Whether the store currently holds squadmates' counts from the sync server.
     online_shown: bool,
     pub stream: crate::stream::Stream,
+    pub discord: crate::discord::Discord,
     pub logo: egui::TextureHandle,
     /// Frames left in which to keep the window hidden after a `--minimized` start.
     /// eframe shows the window after its first frame regardless of the builder.
@@ -120,6 +123,11 @@ pub struct ChestApp {
     sleeper: crate::sleep::Sleeper,
     /// New accounts already announced by a notification this run.
     asked_accounts: std::collections::HashSet<String>,
+    /// The theme the window's title bar was last painted in.
+    title_bar: Option<theme::ColorTheme>,
+    /// The open side menu's width, fitted to the page names in the current language.
+    nav_wide: f32,
+    pub licenses: crate::licenses::LicensesUi,
 }
 
 pub fn run(start_minimized: bool) -> ExitCode {
@@ -154,6 +162,9 @@ pub fn run(start_minimized: bool) -> ExitCode {
 /// Registers the notification name and icon and, on the very first run, puts a shortcut
 /// on the desktop. Off the UI thread: both touch the disk and the registry.
 fn set_up_shell(first_run: bool) {
+    if crate::config::on_test_data() {
+        return;
+    }
     let icon = crate::config::data_dir().join("icon.png");
     let registered = image::save_buffer(&icon, &icon::chest_rgba(128), 128, 128, image::ExtendedColorType::Rgba8)
         .map_err(std::io::Error::other)
@@ -172,7 +183,13 @@ fn set_up_shell(first_run: bool) {
 impl ChestApp {
     fn new(ctx: &egui::Context, start_minimized: bool) -> Self {
         let (mut settings, first_run) = Settings::load_first_run();
+        if first_run {
+            settings.language = crate::i18n::Lang::from_windows(platform::ui_language());
+        }
         crate::i18n::set(settings.language);
+        theme::load_fonts(ctx);
+        theme::set(settings.theme);
+        theme::apply_colors(ctx);
         std::thread::spawn(move || set_up_shell(first_run));
         if settings.install_id.is_empty() {
             settings.install_id = crate::online::new_install_id();
@@ -238,6 +255,7 @@ impl ChestApp {
             online,
             online_shown: false,
             stream: Default::default(),
+            discord: Default::default(),
             logo: ctx.load_texture(
                 "logo",
                 egui::ColorImage::from_rgba_unmultiplied([128, 128], &icon::chest_rgba(128)),
@@ -253,6 +271,9 @@ impl ChestApp {
             warned_no_file: false,
             sleeper: Default::default(),
             asked_accounts: Default::default(),
+            title_bar: None,
+            nav_wide: NAV_WIDE,
+            licenses: Default::default(),
         };
         app.refresh_totals();
         app.settle_account();
@@ -358,10 +379,9 @@ impl ChestApp {
         let mut answer = None;
         egui::Modal::new(egui::Id::unique("unknown-account")).show(ctx, |ui| {
             ui.set_max_width(420.0);
-            ui.label(egui::RichText::new(trf("Is {0} your account?", &[&account.name])).heading().color(theme::GOLD));
+            ui.label(egui::RichText::new(trf("Is {0} your account?", &[&account.name])).heading().color(theme::gold()));
             ui.add_space(6.0);
-            let replays =
-                crate::i18n::plural(account.matches as u64, "replay", "replays", ["реплей", "реплея", "реплеев"]);
+            let replays = crate::i18n::plural(account.matches as u64, "replay", "replays");
             ui.add(
                 egui::Label::new(trf(
                     "{0} recorded {1} {2} on this PC. If it is your second account, it gets its own total and \
@@ -372,35 +392,35 @@ impl ChestApp {
                 .wrap(),
             );
             ui.add_space(10.0);
-            ui.horizontal(|ui| {
-                if ui.button(egui::RichText::new(tr("Yes, it is mine")).strong()).clicked() {
-                    answer = Some(true);
-                }
-                if ui.button(tr("No, not mine")).clicked() {
-                    answer = Some(false);
-                }
-            });
+            let buttons =
+                vec![egui::RichText::new(tr("Yes, it is mine")).strong(), egui::RichText::new(tr("No, not mine"))];
+            answer = theme::centered_buttons(ui, buttons).map(|i| i == 0);
         });
-        match answer {
-            Some(true) => {
-                crate::config::log_event(&format!("{} is the player's account too", account.name));
-                let played_last = self.accounts.iter().all(|a| a.last <= account.last);
-                self.settings
-                    .profiles
-                    .insert(account.id.clone(), crate::config::Profile { name: account.name, ..Default::default() });
-                if played_last {
-                    self.switch_account(&account.id);
-                } else {
-                    self.apply_settings(false);
-                }
+        if let Some(mine) = answer {
+            // A second account that played last is the one to show now.
+            let played_last = mine && self.accounts.iter().all(|a| a.last <= account.last);
+            self.set_account_mine(&account.id, &account.name, mine);
+            if played_last {
+                self.switch_account(&account.id);
             }
-            Some(false) => {
-                crate::config::log_event(&format!("{} is not the player's account", account.name));
-                self.settings.not_mine.push(account.id);
-                self.apply_settings(false);
-            }
-            None => {}
         }
+    }
+
+    /// Records whether the account `id` is one of the player's, from the question or from
+    /// Settings > Counting, where an answer given by mistake can be changed. The active
+    /// account is not touched.
+    pub fn set_account_mine(&mut self, id: &str, name: &str, mine: bool) {
+        if id.is_empty() || id == self.settings.account_id {
+            return;
+        }
+        if mine {
+            crate::config::log_event(&format!("{name} is the player's account too"));
+            self.settings.mark_mine(id, name);
+        } else {
+            crate::config::log_event(&format!("{name} is not the player's account"));
+            self.settings.mark_not_mine(id);
+        }
+        self.apply_settings(false);
     }
 
     /// Persists settings and hands them to the worker. Optionally triggers a scan.
@@ -575,6 +595,37 @@ impl ChestApp {
                 self.tray_status = state;
             }
         }
+    }
+
+    /// Installs an update found by the background check, once Fortnite is closed and the
+    /// window is in the tray. Each release gets one try; a failed one waits for the button.
+    fn auto_update(&mut self, ctx: &egui::Context) {
+        const EVERY: std::time::Duration = std::time::Duration::from_secs(20);
+        let s = &self.settings;
+        let Some(version) = self.update.available.as_ref().map(|r| r.version) else {
+            return;
+        };
+        if !(s.setup_done && s.check_updates && s.auto_update)
+            || self.update.installing.is_some()
+            || self.update.auto_tried == Some(version)
+            || self.quitting
+        {
+            return;
+        }
+        ctx.request_repaint_after(EVERY);
+        let now = std::time::Instant::now();
+        if self.update.auto_checked.is_some_and(|at| now.duration_since(at) < EVERY) {
+            return;
+        }
+        self.update.auto_checked = Some(now);
+        let counting = self.activity.progress.is_some();
+        if !crate::update::may_install_alone(platform::fortnite_running(), platform::main_window_visible(), counting) {
+            return;
+        }
+        crate::config::log_event(&format!("installing v{} by itself", crate::update::version_text(version)));
+        self.update.auto_tried = Some(version);
+        self.install_update();
+        self.update.auto = true;
     }
 
     /// In "start when Fortnite starts" mode, hands over to a copy that waits for the next
@@ -773,7 +824,13 @@ impl ChestApp {
                 Update::Progress(p) => self.update.installing = Some(p),
                 Update::Installed(exe) => {
                     crate::config::log_event("update installed, restarting");
-                    match std::process::Command::new(&exe).arg(AFTER_UPDATE_ARG).spawn() {
+                    let mut restart = std::process::Command::new(&exe);
+                    restart.arg(AFTER_UPDATE_ARG);
+                    if self.update.auto {
+                        // Installed while the window was hidden: come back the same way.
+                        restart.arg("--minimized");
+                    }
+                    match restart.spawn() {
                         Ok(_) => {
                             self.quitting = true;
                             ctx.send_viewport_cmd(ViewportCommand::Close);
@@ -795,6 +852,7 @@ impl ChestApp {
 
     pub fn install_update(&mut self) {
         if let (Some(release), None) = (self.update.available.clone(), self.update.installing) {
+            self.update.auto = false;
             self.update.installing = Some(0.0);
             self.update.error = None;
             self.updater.send(crate::update::Command::Install(release));
@@ -802,7 +860,7 @@ impl ChestApp {
     }
 
     fn update_button(&mut self, ui: &mut egui::Ui, narrow: bool) {
-        let width = if narrow { NAV_NARROW - 16.0 } else { NAV_WIDE - 28.0 };
+        let width = if narrow { NAV_NARROW - 16.0 } else { self.nav_wide - 28.0 };
         if let Some(p) = self.update.installing {
             if !narrow {
                 ui.label(theme::caption(tr("Updating...")));
@@ -815,7 +873,7 @@ impl ChestApp {
             } else {
                 egui::RichText::new(trf("Update to v{0}", &[&version])).strong()
             };
-            let button = egui::Button::new(text.color(theme::BG)).fill(theme::GOLD);
+            let button = egui::Button::new(text.color(theme::bg())).fill(theme::gold());
             let hint = trf("Update to v{0}: downloads it from GitHub and restarts", &[&version]);
             if ui.add_sized([width, 30.0], button).on_hover_text(hint).clicked() {
                 self.install_update();
@@ -825,11 +883,12 @@ impl ChestApp {
 
     fn navigation(&mut self, ui: &mut egui::Ui) {
         let narrow = self.settings.compact_nav;
-        let width = if narrow { NAV_NARROW } else { NAV_WIDE };
+        self.nav_wide = nav_width(ui.ctx());
+        let width = if narrow { NAV_NARROW } else { self.nav_wide };
         egui::Panel::left("nav")
             .resizable(false)
             .exact_size(width)
-            .frame(egui::Frame::new().fill(theme::PANEL).inner_margin(egui::Margin::symmetric(8, 12)))
+            .frame(egui::Frame::new().fill(theme::panel()).inner_margin(egui::Margin::symmetric(8, 12)))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
                     let toggle = egui::Button::new(theme::icon_text(theme::icon::MENU, "=", 16.0)).frame(false);
@@ -839,14 +898,14 @@ impl ChestApp {
                         let _ = self.settings.save();
                     }
                     if !narrow {
-                        ui.label(egui::RichText::new(tr("Chest Counter")).size(15.0).strong().color(theme::GOLD));
+                        ui.label(egui::RichText::new(tr("Chest Counter")).size(15.0).strong().color(theme::gold()));
                     }
                 });
                 ui.add_space(10.0);
                 self.account_switcher(ui, narrow);
                 for page in Page::ALL {
                     let selected = self.page == page;
-                    let color = if selected { theme::GOLD } else { theme::TEXT };
+                    let color = if selected { theme::gold() } else { theme::text() };
                     let letter: String = page.label().chars().take(1).collect();
                     let icon = theme::icon_text(page.icon(), &letter, 16.0).color(color);
                     let response = if narrow {
@@ -859,18 +918,90 @@ impl ChestApp {
                         let label = if selected { label.strong() } else { label };
                         label.append_to(&mut job, ui.style(), egui::FontSelection::Default, egui::Align::Center);
                         let button = egui::Button::selectable(selected, job);
-                        ui.add_sized([NAV_WIDE - 16.0, 34.0], button)
+                        ui.add_sized([self.nav_wide - 16.0, 34.0], button)
                     };
                     if response.clicked() {
                         self.page = page;
                     }
                 }
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Min), |ui| {
-                    ui.label(theme::caption(format!("v{}", env!("CARGO_PKG_VERSION"))));
+                    let version = ui
+                        .add(
+                            egui::Label::new(theme::caption(format!("v{}", env!("CARGO_PKG_VERSION"))))
+                                .sense(egui::Sense::click()),
+                        )
+                        .on_hover_cursor(egui::CursorIcon::PointingHand)
+                        .on_hover_text(tr("About this app"));
+                    if version.clicked() {
+                        self.page = Page::Settings;
+                        self.settings_ui.category = crate::ui::settings::Category::About;
+                    }
                     self.update_button(ui, narrow);
                     self.activity_badge(ui, narrow);
+                    self.star_link(ui, narrow);
                 });
             });
+    }
+
+    /// Switches the interface language, with the font its script needs.
+    pub fn set_language(&mut self, ctx: &egui::Context, picked: crate::i18n::Lang) {
+        if self.settings.language == picked {
+            return;
+        }
+        self.settings.language = picked;
+        crate::i18n::set(picked);
+        theme::load_fonts(ctx);
+        let _ = self.settings.save();
+    }
+
+    /// Switches the color theme and restyles everything at once.
+    pub fn set_theme(&mut self, ctx: &egui::Context, picked: theme::ColorTheme) {
+        if self.settings.theme == picked {
+            return;
+        }
+        self.settings.theme = picked;
+        theme::set(picked);
+        theme::apply_colors(ctx);
+        let _ = self.settings.save();
+    }
+
+    /// Paints Windows' title bar to match the theme, once the window exists.
+    fn paint_title_bar(&mut self) {
+        let current = theme::current();
+        if self.title_bar == Some(current) {
+            return;
+        }
+        let p = theme::palette();
+        let rgb = |c: egui::Color32| [c.r(), c.g(), c.b()];
+        if platform::color_title_bar(APP_NAME, !p.light, rgb(p.panel), rgb(p.text)) {
+            self.title_bar = Some(current);
+        }
+    }
+
+    /// A quiet link to the public repository, asking for a star.
+    fn star_link(&mut self, ui: &mut egui::Ui, narrow: bool) {
+        let response = if narrow {
+            let star = theme::icon_text(theme::icon::STAR_FILLED, "*", 15.0).color(theme::gold());
+            ui.add_sized([NAV_NARROW - 16.0, 26.0], egui::Button::new(star))
+        } else {
+            let mut job = egui::text::LayoutJob::default();
+            let star = theme::icon_text(theme::icon::STAR_FILLED, "*", 11.0).color(theme::gold());
+            star.append_to(&mut job, ui.style(), egui::FontSelection::Default, egui::Align::Center);
+            for text in [egui::RichText::new("  "), egui::RichText::new(tr("Star on GitHub")).underline()] {
+                let text = text.size(12.5).color(theme::muted());
+                text.append_to(&mut job, ui.style(), egui::FontSelection::Default, egui::Align::Center);
+            }
+            ui.add(egui::Label::new(job).sense(egui::Sense::click()))
+        };
+        let response = response
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .on_hover_text(tr("Enjoying the app? Star it on GitHub so more players find it."));
+        if response.clicked() {
+            let url = format!("https://github.com/{}", crate::update::REPO);
+            if let Err(e) = crate::platform::open_url(&url) {
+                self.activity.push_log(trf("Could not open the browser: {0}", &[&e]));
+            }
+        }
     }
 
     /// Which Epic account is shown, when more than one plays on this PC.
@@ -898,7 +1029,7 @@ impl ChestApp {
             ui.menu_button(icon, |ui| list(ui, &mut pick)).response.on_hover_text(format!("{current}\n\n{hint}"));
         } else {
             egui::ComboBox::from_id_salt("account")
-                .width(NAV_WIDE - 16.0)
+                .width(self.nav_wide - 16.0)
                 .selected_text(&current)
                 .show_ui(ui, |ui| list(ui, &mut pick))
                 .response
@@ -911,7 +1042,7 @@ impl ChestApp {
     }
 
     fn activity_badge(&self, ui: &mut egui::Ui, narrow: bool) {
-        let width = if narrow { NAV_NARROW - 16.0 } else { NAV_WIDE - 28.0 };
+        let width = if narrow { NAV_NARROW - 16.0 } else { self.nav_wide - 28.0 };
         if let Some((file, fraction, queued)) = &self.activity.progress {
             let bar = ui.add(egui::ProgressBar::new(*fraction).desired_width(width));
             let more = if *queued > 0 { trf(" (+{0} queued)", &[queued]) } else { String::new() };
@@ -924,23 +1055,38 @@ impl ChestApp {
         } else if narrow {
             // A dot: green while a match is played, gold while watching, red when paused.
             let (color, hint) = if self.activity.live_matches > 0 {
-                (theme::OPENED, tr("Match in progress"))
+                (theme::opened(), tr("Match in progress"))
             } else if self.settings.watch {
-                (theme::GOLD, tr("Watching for new matches"))
+                (theme::gold(), tr("Waiting for your next match"))
             } else {
-                (theme::WARN, tr("Watching paused"))
+                (theme::warn(), tr("Watching paused"))
             };
             let (rect, response) = ui.allocate_exact_size(egui::vec2(width, 14.0), egui::Sense::hover());
             ui.painter().circle_filled(rect.center(), 4.0, color);
             response.on_hover_text(hint);
         } else if self.activity.live_matches > 0 {
-            ui.label(egui::RichText::new(tr("Match in progress")).color(theme::OPENED).size(12.5));
+            ui.label(egui::RichText::new(tr("Match in progress")).color(theme::opened()).size(12.5));
         } else if self.settings.watch {
-            ui.label(theme::caption(tr("Watching for new matches")));
+            ui.label(theme::caption(tr("Waiting for your next match")));
         } else {
-            ui.label(egui::RichText::new(tr("Watching paused")).color(theme::WARN).size(12.5));
+            ui.label(egui::RichText::new(tr("Watching paused")).color(theme::warn()).size(12.5));
         }
     }
+}
+
+/// Wide enough for the longest page name next to its icon, within bounds.
+fn nav_width(ctx: &egui::Context) -> f32 {
+    let widest = Page::ALL
+        .iter()
+        .map(|page| {
+            let galley = ctx.fonts_mut(|f| {
+                f.layout_no_wrap(format!("   {}", page.label()), egui::FontId::proportional(14.5), egui::Color32::WHITE)
+            });
+            galley.size().x
+        })
+        .fold(0.0, f32::max);
+    // Icon, button padding and the panel's margins.
+    (widest + 16.0 + 20.0 + 16.0 + 8.0).clamp(NAV_WIDE, NAV_WIDEST)
 }
 
 pub fn short_name(file: &str) -> &str {
@@ -960,20 +1106,23 @@ impl eframe::App for ChestApp {
         self.process_online(ctx);
         self.process_game_log(ctx);
         self.handle_close(ctx);
+        self.auto_update(ctx);
         self.process_sleep(ctx);
         self.handle_dropped_files(ctx);
         crate::overlay::update(self, ctx);
         crate::stream::update(self);
+        crate::discord::update(self, ctx);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.paint_title_bar();
         if !self.settings.setup_done {
             egui::CentralPanel::default().show(ui, |ui| crate::ui::setup::show(self, ui));
             return;
         }
         self.navigation(ui);
         egui::CentralPanel::default()
-            .frame(egui::Frame::new().fill(theme::BG).inner_margin(egui::Margin::same(20)))
+            .frame(egui::Frame::new().fill(theme::bg()).inner_margin(egui::Margin::same(20)))
             .show(ui, |ui| match self.page {
                 Page::Overview => crate::ui::overview::show(self, ui),
                 Page::Matches => crate::ui::matches::show(self, ui),
@@ -983,7 +1132,14 @@ impl eframe::App for ChestApp {
                 Page::Leaderboard => crate::ui::leaderboard::show(self, ui),
                 Page::Settings => crate::ui::settings::show(self, ui),
             });
-        if !self.whats_new.is_empty() && crate::changelog::show(ui.ctx(), &self.whats_new) {
+        crate::licenses::window(ui.ctx(), &mut self.licenses);
+        let before = self.settings.auto_update;
+        let switch = self.settings.check_updates.then_some(&mut self.settings.auto_update);
+        let closed = !self.whats_new.is_empty() && crate::changelog::show(ui.ctx(), &self.whats_new, switch);
+        if self.settings.auto_update != before {
+            let _ = self.settings.save();
+        }
+        if closed {
             self.whats_new.clear();
             let current = crate::update::version_text(crate::update::current());
             if self.settings.notes_seen != current {

@@ -188,6 +188,9 @@ mod imp {
     /// game runs (see `WAIT_FOR_FORTNITE_ARG`).
     pub fn set_autostart(enabled: bool, wait_for_fortnite: bool) -> std::io::Result<()> {
         use winreg::enums::{HKEY_CURRENT_USER, KEY_SET_VALUE};
+        if crate::config::on_test_data() {
+            return Ok(());
+        }
         let key = winreg::RegKey::predef(HKEY_CURRENT_USER).open_subkey_with_flags(RUN_KEY, KEY_SET_VALUE)?;
         if enabled {
             let exe = std::env::current_exe()?;
@@ -220,6 +223,9 @@ mod imp {
 
     pub fn notify(title: &str, body: &str) {
         use tauri_winrt_notification::Toast;
+        // Windows lays out Arabic itself: give it plain text, not what the app draws.
+        let (title, body) = (crate::i18n::native(title), crate::i18n::native(body));
+        let (title, body) = (title.as_str(), body.as_str());
         let show = |id: &str| Toast::new(id).title(title).text1(body).show();
         if !NOTIFY_AS_APP.load(std::sync::atomic::Ordering::Relaxed) || show(APP_USER_MODEL_ID).is_err() {
             let _ = show(Toast::POWERSHELL_APP_ID);
@@ -342,6 +348,39 @@ mod imp {
         }
     }
 
+    /// Paints the title bar Windows draws over the window: dark or light, and on Windows 11
+    /// in `caption` with `text` on it. Returns false if the window is not there yet.
+    pub fn color_title_bar(title: &str, dark: bool, caption: [u8; 3], text: [u8; 3]) -> bool {
+        use windows_sys::Win32::Graphics::Dwm::{
+            DwmSetWindowAttribute, DWMWA_CAPTION_COLOR, DWMWA_TEXT_COLOR, DWMWA_USE_IMMERSIVE_DARK_MODE,
+        };
+        let hwnd = own_window(title);
+        let colorref = |[r, g, b]: [u8; 3]| u32::from(r) | (u32::from(g) << 8) | (u32::from(b) << 16);
+        let values: [(i32, u32); 3] = [
+            (DWMWA_USE_IMMERSIVE_DARK_MODE, u32::from(dark)),
+            // Windows 10 ignores these two.
+            (DWMWA_CAPTION_COLOR, colorref(caption)),
+            (DWMWA_TEXT_COLOR, colorref(text)),
+        ];
+        // SAFETY: the handle is checked; each value is a 4-byte BOOL or COLORREF that lives
+        // through the call.
+        unsafe {
+            if hwnd.is_null() {
+                return false;
+            }
+            for (attribute, value) in values {
+                DwmSetWindowAttribute(hwnd, attribute as u32, (&value as *const u32).cast(), size_of::<u32>() as u32);
+            }
+            true
+        }
+    }
+
+    /// The language id of Windows' interface, such as 0x0419 for Russian.
+    pub fn ui_language() -> u16 {
+        // SAFETY: no arguments; it only reads the user's setting.
+        unsafe { windows_sys::Win32::Globalization::GetUserDefaultUILanguage() }
+    }
+
     /// Turns off the animation Windows plays when a top-level window is shown. Returns
     /// false if the window is not there yet.
     pub fn disable_window_animation(title: &str) -> bool {
@@ -367,6 +406,12 @@ mod imp {
 
 #[cfg(not(windows))]
 mod imp {
+    pub fn color_title_bar(_title: &str, _dark: bool, _caption: [u8; 3], _text: [u8; 3]) -> bool {
+        true
+    }
+    pub fn ui_language() -> u16 {
+        0x0409
+    }
     pub fn attach_parent_console() {}
     pub fn listen_for_activation(_on_activate: impl Fn() + Send + 'static) {}
     pub fn activate_existing_instance() -> bool {
