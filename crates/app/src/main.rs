@@ -15,6 +15,7 @@ mod licenses;
 mod online;
 mod overlay;
 mod platform;
+mod prizes;
 mod quest;
 mod record;
 mod sleep;
@@ -56,6 +57,7 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
     std::thread::spawn(update::remove_leftover);
+    prizes::load();
     config::log_event(&format!("start v{} {}", env!("CARGO_PKG_VERSION"), args.join(" ")));
     let code = app::run(waited || args.iter().any(|a| a == "--minimized"));
     config::log_event("event loop ended");

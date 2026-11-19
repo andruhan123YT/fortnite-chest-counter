@@ -6,7 +6,7 @@ use egui_extras::{Column, TableBuilder};
 
 use crate::app::{short_name, ChestApp};
 use crate::i18n::{date_format, plural, tr, trf};
-use crate::record::MatchRecord;
+use crate::record::{MatchRecord, Prize};
 use crate::theme;
 use crate::worker::Command;
 
@@ -58,10 +58,22 @@ fn table(app: &mut ChestApp, ui: &mut egui::Ui) {
         .column(Column::auto().at_least(60.0))
         .column(Column::auto().at_least(50.0))
         .column(Column::auto().at_least(60.0))
+        // Truncated labels report a tiny width, so the column gets a fixed one.
+        .column(Column::exact(150.0).clip(true))
         .column(Column::remainder())
         .header(24.0, |mut h| {
             let squad = tr("Squad");
-            let titles = [tr("Date"), tr("Length"), tr("Place"), tr("Opened"), tr("Broken"), tr("Mine"), squad, ""];
+            let titles = [
+                tr("Date"),
+                tr("Length"),
+                tr("Place"),
+                tr("Opened"),
+                tr("Broken"),
+                tr("Mine"),
+                squad,
+                tr("Prizes"),
+                "",
+            ];
             for title in titles {
                 h.col(|ui| {
                     let label = ui.label(RichText::new(title).strong().color(theme::muted()));
@@ -112,6 +124,19 @@ fn table(app: &mut ChestApp, ui: &mut egui::Ui) {
                 });
                 row.col(|ui| {
                     ui.label(dim(if s.teammates.is_empty() { "–".into() } else { s.mates.to_string() }));
+                });
+                row.col(|ui| {
+                    let nick = view.settings.name_in(m);
+                    let Some(note) = m.prizes_note(nick) else { return };
+                    // Gold when a prize came out of the player's own chests, blue when only
+                    // squadmates found them.
+                    let mine = m.treasures(nick).iter().any(|t| t.found_by.is_none());
+                    let color = if mine { theme::gold() } else { theme::squad() };
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 5.0;
+                        ui.label(theme::icon_text(theme::icon::STAR_FILLED, "*", 11.0).color(color));
+                        ui.add(egui::Label::new(dim(note)).truncate());
+                    });
                 });
                 row.col(|ui| {
                     let mut notes = Vec::new();
@@ -196,21 +221,16 @@ fn detail(app: &mut ChestApp, ui: &mut egui::Ui, m: &MatchRecord) {
             timeline(&mut cols[0], m, me);
         }
         let treasures = m.treasures(&nick);
-        if !treasures.is_empty() {
+        // Other players' prizes are the recorder's to see only.
+        let nearby: &[chests::NearbyPrize] = if m.recorded_by(&nick) { &m.nearby_prizes } else { &[] };
+        if !treasures.is_empty() || !nearby.is_empty() {
             cols[0].add_space(6.0);
             cols[0].label(RichText::new(trf("Treasures: {0}", &[&treasures.len()])).strong().color(theme::treasure()));
             for t in treasures {
-                let how = |broken: bool| if broken { tr("broken") } else { tr("opened") };
-                let from = match &t.source {
-                    Some(src) if me.is_some_and(|me| same_name(&me.name, &src.player)) => {
-                        trf("from your {0} ({1})", &[&theme::chest_phrase(src.kind), &how(src.broken)])
-                    }
-                    Some(src) => {
-                        trf("from {0}'s {1} ({2})", &[&src.player, &theme::chest_phrase(src.kind), &how(src.broken)])
-                    }
-                    None => tr("from a squad chest out of view").to_string(),
-                };
-                cols[0].label(format!("{}  {from}", m.clock(t.time)));
+                prize_row(&mut cols[0], m, &nick, me.map(|p| p.name.as_str()), t);
+            }
+            for p in nearby {
+                nearby_row(&mut cols[0], m, p);
             }
         }
         let all_exact = !s.teammates.is_empty() && s.teammates.iter().all(|t| t.with_app);
@@ -261,6 +281,84 @@ fn app_badge(ui: &mut egui::Ui, logo: &egui::TextureHandle) {
         "Runs Fortnite Chest Counter too, so these are their own numbers from their own replay, not only the chests \
          seen near you.",
     ));
+}
+
+/// A small label on a colored background, after a prize's name.
+fn chip(ui: &mut egui::Ui, text: &str, color: egui::Color32) {
+    egui::Frame::new()
+        .fill(color.gamma_multiply(0.18))
+        .corner_radius(4.0)
+        .inner_margin(egui::Margin::symmetric(5, 1))
+        .show(ui, |ui| ui.label(RichText::new(text).size(11.0).color(color)));
+}
+
+/// The second line of a prize, under its name, wrapping within that indent.
+fn detail_line(ui: &mut egui::Ui, text: String) {
+    ui.horizontal(|ui| {
+        ui.add_space(44.0);
+        ui.add(egui::Label::new(theme::caption(text)).wrap());
+    });
+}
+
+/// Which chest a prize came out of, in words.
+fn prize_source(t: &chests::Treasure, me: Option<&str>) -> String {
+    let how = |broken: bool| if broken { tr("broken") } else { tr("opened") };
+    match (&t.source, &t.found_by) {
+        (Some(src), _) if me.is_some_and(|me| same_name(me, &src.player)) => {
+            trf("from your {0} ({1})", &[&theme::chest_phrase(src.kind), &how(src.broken)])
+        }
+        (Some(src), _) => trf("from {0}'s {1} ({2})", &[&src.player, &theme::chest_phrase(src.kind), &how(src.broken)]),
+        (None, Some(by)) => trf("from {0}'s chest", &[by]),
+        (None, None) => tr("from a squad chest out of view").to_string(),
+    }
+}
+
+/// One of the player's prizes: when, what it was as far as the replay tells, and whose
+/// chest rolled it.
+fn prize_row(ui: &mut egui::Ui, m: &MatchRecord, nick: &str, me: Option<&str>, t: &chests::Treasure) {
+    let from = prize_source(t, me);
+    let (title, title_color, squad, sub): (String, egui::Color32, bool, Vec<String>) = match m.prize_of(t, nick) {
+        Prize::Named(id) => {
+            let detail = crate::prizes::lookup(id).map(|p| p.detail()).filter(|d| !d.is_empty());
+            match &t.found_by {
+                Some(_) => {
+                    let sub = detail.into_iter().chain([from, tr("prizes are shared with the squad").into()]).collect();
+                    (crate::prizes::title(id), theme::text(), true, sub)
+                }
+                None => (crate::prizes::title(id), theme::gold(), false, detail.into_iter().chain([from]).collect()),
+            }
+        }
+        Prize::Gizmo => {
+            (tr("Gizmo").into(), theme::text(), false, vec![from, tr("the replay doesn't say which gizmo").into()])
+        }
+        Prize::Unknown => {
+            (tr("Prize").into(), theme::text(), false, vec![from, tr("the replay doesn't say which prize").into()])
+        }
+    };
+    let star = if squad { theme::squad() } else { theme::gold() };
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.monospace(m.clock(t.time));
+        ui.label(theme::icon_text(theme::icon::STAR_FILLED, "*", 12.0).color(star));
+        ui.label(RichText::new(title).strong().color(title_color));
+        if squad {
+            chip(ui, tr("Squad"), theme::squad());
+        }
+    });
+    detail_line(ui, sub.join(" · "));
+}
+
+/// A prize another player, outside the squad, got in view: shown so the player knows a
+/// golden chest they saw was not theirs.
+fn nearby_row(ui: &mut egui::Ui, m: &MatchRecord, p: &chests::NearbyPrize) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        ui.label(RichText::new(m.clock(p.time)).monospace().color(theme::muted()));
+        ui.label(theme::icon_text(theme::icon::STAR, "*", 12.0).color(theme::muted()));
+        ui.label(RichText::new(crate::prizes::title(&p.prize)).color(theme::muted()));
+        chip(ui, tr("Not you"), theme::muted());
+    });
+    detail_line(ui, tr("another player nearby, not your squad · not in your prizes or odds").to_owned());
 }
 
 fn timeline(ui: &mut egui::Ui, m: &MatchRecord, player: &PlayerChests) {

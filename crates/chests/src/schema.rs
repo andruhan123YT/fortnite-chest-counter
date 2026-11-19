@@ -15,6 +15,7 @@ pub enum Group {
     Abilities = 7,
     AbilitiesCache = 8,
     GamePhase = 9,
+    PrizeChest = 10,
 }
 
 impl Group {
@@ -30,6 +31,7 @@ impl Group {
             Self::Abilities,
             Self::AbilitiesCache,
             Self::GamePhase,
+            Self::PrizeChest,
         ]
         .get(index)
         .copied()
@@ -158,6 +160,14 @@ pub fn fortnite_schema() -> Schema {
         GroupSpec::new("GamePhase")
             .paths(["/Game/Athena/Athena_GamePhaseLogic.Athena_GamePhaseLogic_C"])
             .prop("GamePhase", Decoder::UInt),
+        // The golden chest the server spawns when a chest rolls a weekly prize or Pirate
+        // Shop Access: it names the prize and who opened which chest. Gizmos get none.
+        GroupSpec::new("PrizeChest")
+            .paths(["/DelilahTreasureHuntGameplay/Gameplay/Actors/BGA_DelilahTreasureHuntAnimatedChest"])
+            .partial_path()
+            .prop("PrizeTemplateId", Decoder::EmbeddedString)
+            .prop("OpeningPawn", Decoder::IntPacked)
+            .prop("SourceContainer", Decoder::IntPacked),
     ])
 }
 
@@ -181,12 +191,14 @@ mod tests {
                 "GameState",
                 "Abilities",
                 "AbilitiesCache",
-                "GamePhase"
+                "GamePhase",
+                "PrizeChest"
             ]
         );
         assert_eq!(Group::from_index(6), Some(Group::GameState));
         assert_eq!(Group::from_index(8), Some(Group::AbilitiesCache));
         assert_eq!(Group::from_index(4), Some(Group::Pickup));
         assert_eq!(Group::from_index(9), Some(Group::GamePhase));
+        assert_eq!(Group::from_index(10), Some(Group::PrizeChest));
     }
 }

@@ -146,6 +146,22 @@ impl Store {
                     m.linked_from.push(owner);
                 }
             }
+            // A squadmate's own replay, through the server: every chest they looted, where
+            // and when. It goes in under the name this replay knows them by.
+            for f in &m.online {
+                let Some(theirs) = f.player() else { continue };
+                let Some(here) = m.players.iter().find(|p| p.epic_id.as_deref() == Some(f.player.as_str())) else {
+                    continue;
+                };
+                let best_so_far =
+                    m.fuller.iter().find(|q| same_name(&q.name, &here.name)).map_or(here.total(), |q| q.total());
+                if theirs.total() < best_so_far {
+                    continue;
+                }
+                let theirs = chests::PlayerChests { name: here.name.clone(), team: here.team, ..theirs };
+                m.fuller.retain(|q| !same_name(&q.name, &here.name));
+                m.fuller.push(on_clock_of(&theirs, f.bus, m.bus_launch));
+            }
         }
     }
 
@@ -237,6 +253,7 @@ mod tests {
             players: vec![],
             owner: None,
             treasures: Vec::new(),
+            nearby_prizes: Vec::new(),
             analyzer_version: ANALYZER_VERSION,
             packet_health: 1.0,
             match_id: None,
@@ -311,6 +328,53 @@ mod tests {
 
         store.remove_squad_replay("theirs");
         assert_eq!(store.matches[0].summary("").mates, 1);
+    }
+
+    #[test]
+    fn a_squadmates_chests_from_the_server_replace_what_this_replay_saw_of_them() {
+        const MATE: &str = "fedcba9876543210fedcba9876543210";
+        let mut mine = record("mine", "a.replay");
+        mine.owner = Some("Me".into());
+        mine.match_id = Some("session-1".into());
+        mine.bus_launch = Some(50.0);
+        let mut mate = player("Mate", 2, 1);
+        mate.epic_id = Some(MATE.into());
+        mine.players = vec![player("Me", 2, 5), mate];
+        let mut store = Store::default();
+        store.upsert(mine);
+
+        let chest = |t, o| crate::online::Chest {
+            t,
+            k: chests::ChestKind::Rare,
+            o,
+            v: false,
+            l: false,
+            x: Some(100),
+            y: Some(200),
+        };
+        let found = |chests| crate::online::Found {
+            match_id: "session-1".into(),
+            player: MATE.into(),
+            // Their app's name for them may differ from this replay's.
+            name: "mate".into(),
+            opened: 2,
+            broken: 1,
+            bus: Some(40.0),
+            chests,
+        };
+        store.set_online(vec![found(Some(vec![chest(100.0, true), chest(110.0, true), chest(120.0, false)]))]);
+        let m = &store.matches[0];
+        let theirs = m.roster().find(|p| p.name == "Mate").unwrap();
+        assert_eq!((theirs.opened.len(), theirs.broken.len(), theirs.team), (2, 1, Some(2)));
+        // Their bus left 40 s into their replay and 50 s into this one.
+        assert_eq!((theirs.opened[0].time, theirs.opened[0].x), (110.0, Some(100.0)));
+        assert_eq!(m.roster().count(), 2);
+        assert_eq!(m.summary("").mates, 3);
+
+        // From an app that sends counts only, the map keeps what this replay saw.
+        store.set_online(vec![found(None)]);
+        assert_eq!(store.matches[0].roster().find(|p| p.name == "Mate").unwrap().total(), 1);
+        assert_eq!(store.matches[0].summary("").mates, 3);
     }
 
     #[test]

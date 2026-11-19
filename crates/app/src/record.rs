@@ -1,13 +1,14 @@
 //! What gets stored per match, and how it is summarized for the configured player.
 
-use chests::{same_name, MatchAnalysis, PlayerChests, Treasure};
+use chests::{same_name, MatchAnalysis, NearbyPrize, PlayerChests, Treasure};
 use chrono::{DateTime, NaiveDateTime};
 use serde::{Deserialize, Serialize};
 
 use crate::cli::mmss;
+use crate::i18n::{plural, trf};
 
 /// Bump when the analysis changes in a way that makes stored results stale.
-pub const ANALYZER_VERSION: u32 = 12;
+pub const ANALYZER_VERSION: u32 = 13;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct MatchRecord {
@@ -35,6 +36,9 @@ pub struct MatchRecord {
     /// Treasure hunt prizes the recorder received.
     #[serde(default)]
     pub treasures: Vec<Treasure>,
+    /// Prizes players outside the recorder's squad got in view.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub nearby_prizes: Vec<NearbyPrize>,
     #[serde(default)]
     pub analyzer_version: u32,
     #[serde(default = "full_health")]
@@ -57,6 +61,17 @@ pub struct MatchRecord {
     /// Filled in by the store from the sync server; never saved here.
     #[serde(skip)]
     pub online: Vec<crate::online::Found>,
+}
+
+/// What a received prize was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Prize<'a> {
+    /// The id its golden chest carried.
+    Named(&'a str),
+    /// From the player's own chest without a golden chest.
+    Gizmo,
+    /// From a squadmate's chest out of view, or no chest in view at all.
+    Unknown,
 }
 
 fn full_health() -> f32 {
@@ -139,6 +154,7 @@ impl MatchRecord {
             players,
             owner,
             treasures,
+            nearby_prizes: analysis.nearby_prizes,
             analyzer_version: ANALYZER_VERSION,
             packet_health: replay.packet_health() as f32,
             match_id: analysis.match_id,
@@ -231,6 +247,43 @@ impl MatchRecord {
         }
     }
 
+    /// When something `replay_time` seconds into the replay happened. Match start times
+    /// are the recording PC's clock, without a time zone.
+    pub fn at(&self, replay_time: f32) -> Option<chrono::DateTime<chrono::Utc>> {
+        let start = self.started_at?.and_local_timezone(chrono::Local).earliest()?;
+        Some(start.with_timezone(&chrono::Utc) + chrono::Duration::milliseconds((replay_time * 1000.0) as i64))
+    }
+
+    /// What a prize of the counted player was, as far as the replay tells.
+    pub fn prize_of<'a>(&self, t: &'a Treasure, nick: &str) -> Prize<'a> {
+        match (&t.prize, &t.source) {
+            (Some(id), _) => Prize::Named(id),
+            // The player's own chest would have shown its golden chest: no golden chest
+            // means a gizmo. A squadmate's chest out of view could have been anything.
+            (None, Some(src)) if same_name(&src.player, self.player_name(nick)) => Prize::Gizmo,
+            (None, _) => Prize::Unknown,
+        }
+    }
+
+    /// The Matches list's short note on a match's prizes: the first named prize, or how
+    /// many gizmos or prizes. `None` without any.
+    pub fn prizes_note(&self, nick: &str) -> Option<String> {
+        let treasures = self.treasures(nick);
+        let n = treasures.len();
+        let named = treasures.iter().find_map(|t| t.prize.as_deref());
+        if let Some(id) = named {
+            let title = crate::prizes::title(id);
+            return Some(if n > 1 { trf("{0} +{1}", &[&title, &(n - 1)]) } else { title });
+        }
+        let gizmos = treasures.iter().all(|t| matches!(self.prize_of(t, nick), Prize::Gizmo));
+        let word = |n: u64| if gizmos { plural(n, "Gizmo", "Gizmos") } else { plural(n, "Prize", "Prizes") };
+        match n {
+            0 => None,
+            1 => Some(word(1).to_owned()),
+            n => Some(format!("{n} {}", word(n as u64))),
+        }
+    }
+
     pub fn me<'a>(&'a self, nick: &str) -> Option<&'a PlayerChests> {
         let nick = self.player_name(nick);
         if nick.is_empty() {
@@ -288,7 +341,8 @@ mod tests {
             eliminations: None,
             players: vec![p("Me", Some(5), 3), p("Mate", Some(5), 2), p("Enemy", Some(6), 9)],
             owner: Some("Me".into()),
-            treasures: vec![Treasure { time: 5.0, source: None }],
+            treasures: vec![Treasure { time: 5.0, source: None, prize: None, found_by: None }],
+            nearby_prizes: Vec::new(),
             analyzer_version: ANALYZER_VERSION,
             packet_health: 1.0,
             match_id: None,
@@ -325,6 +379,8 @@ mod tests {
             name: "x".into(),
             opened,
             broken,
+            bus: None,
+            chests: None,
         };
         let mut record = MatchRecord {
             owner: Some("Me".into()),
@@ -346,6 +402,26 @@ mod tests {
     }
 
     #[test]
+    fn the_matches_list_names_the_best_prize_or_counts_the_rest() {
+        use chests::{ChestKind, TreasureSource};
+        let mine = |time| Treasure {
+            time,
+            source: Some(TreasureSource { player: "Me".into(), kind: ChestKind::Normal, broken: false, time: None }),
+            prize: None,
+            found_by: None,
+        };
+        let out_of_view = |time| Treasure { time, source: None, prize: None, found_by: None };
+        let record = |treasures| MatchRecord { owner: Some("Me".into()), treasures, ..Default::default() };
+        assert_eq!(record(vec![]).prizes_note(""), None);
+        assert_eq!(record(vec![mine(1.0)]).prizes_note("").as_deref(), Some("Gizmo"));
+        assert_eq!(record(vec![mine(1.0), mine(2.0)]).prizes_note("").as_deref(), Some("2 Gizmos"));
+        // A prize from a chest out of view could have been anything.
+        assert_eq!(record(vec![mine(1.0), out_of_view(2.0)]).prizes_note("").as_deref(), Some("2 Prizes"));
+        let decal = Treasure { prize: Some("DelilahPrize:dpid_item18".into()), ..mine(3.0) };
+        assert_eq!(record(vec![mine(1.0), decal]).prizes_note("").as_deref(), Some("Gold Cadillac CT5-V Decal +1"));
+    }
+
+    #[test]
     fn clock_counts_from_the_bus() {
         let mut record = MatchRecord {
             id: "x".into(),
@@ -360,6 +436,7 @@ mod tests {
             players: Vec::new(),
             owner: None,
             treasures: Vec::new(),
+            nearby_prizes: Vec::new(),
             analyzer_version: ANALYZER_VERSION,
             packet_health: 1.0,
             match_id: None,

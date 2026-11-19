@@ -3,6 +3,12 @@
 Krótkie notatki do każdej wersji. Aplikacja pokazuje nowe raz po aktualizacji, a
 Ustawienia > O aplikacji > Co nowego pokazuje je ponownie.
 
+## 1.1.6
+
+- **Skrzynie drużyny na mapie.** Członkowie drużyny, którzy też używają aplikacji, pojawiają się na Mapie z każdą skrzynią, którą zlootowali, każdy w swoim kolorze. Kliknij skrzynię, by zobaczyć, kiedy to było i która to była. W tym celu tryb Online wysyła teraz także, kiedy, jaka i gdzie była każda twoja skrzynia, również z wcześniejszych meczów. Wyłączysz to w Ustawienia > Online.
+- **Jaką nagrodę dostałeś.** Nagrody tygodnia i dostęp do sklepu pirackiego są teraz widoczne z nazwy, z godziną i skrzynią, z której wypadły, w meczu i w powiadomieniu po meczu; lista meczów ma kolumnę Nagrody. Nagroda znaleziona przez członka drużyny jest oznaczona Drużyna, a ta, którą dostał inny gracz w pobliżu, Nie ty. Gizmo widać jako Gizmo: powtórka nie mówi, które.
+- **Godziny skarbów.** Przegląd pokazuje następną lub trwającą, z odliczaniem i tym, co jest wzmocnione. 15 minut przed startem przychodzi powiadomienie, a gdy trwa, nakładka w grze pokazuje GODZINA SKARBÓW. Skrzynie zlootowane w godzinach skarbów liczą się z bonusem w szansie na dostęp do sklepu pirackiego. Każdą z tych rzeczy wyłączysz w Ustawienia > Ogólne.
+
 ## 1.1.5
 
 - **Aktualizacje instalują się same.** Gdy wyjdzie nowa wersja, aplikacja zainstaluje ją, gdy tylko zamkniesz Fortnite. Możesz to wyłączyć poniżej albo w Ustawienia > O aplikacji.

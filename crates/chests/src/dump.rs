@@ -121,6 +121,13 @@ impl<W: Write> Visitor for EventDump<W> {
                 }
             }
             Some(Group::AbilitiesCache) => {}
+            Some(Group::PrizeChest) => {
+                let prize = u.get("PrizeTemplateId").and_then(|v| v.as_str());
+                let pawn = u.get("OpeningPawn").and_then(|v| v.as_u32());
+                if prize.is_some() || pawn.is_some() {
+                    self.emit(json!({"k": "prize", "t": t, "guid": g, "prize": prize, "pawn": pawn}));
+                }
+            }
             None => {}
         }
     }

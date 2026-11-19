@@ -3,6 +3,12 @@
 Kurze Notizen zu jeder Version. Die App zeigt die neuen einmal nach einem Update, und
 Einstellungen > Info > Neuigkeiten zeigt sie erneut.
 
+## 1.1.6
+
+- **Die Truhen deines Trupps auf der Karte.** Teamkameraden, die die App auch nutzen, erscheinen auf der Karte mit jeder Truhe, die sie gelootet haben, jeder in seiner eigenen Farbe. Ein Klick zeigt, wann es war und die wievielte Truhe. Dafür sendet Online jetzt auch, wann, welche Art und wo jede deiner Truhen war, auch für frühere Matches. Unter Einstellungen > Online lässt es sich ausschalten.
+- **Welchen Preis du bekommen hast.** Wöchentliche Preise und Zugang zum Piratenshop erscheinen jetzt mit Namen, Zeit und der Truhe, aus der sie kamen, im Match und in der Benachrichtigung danach; die Match-Liste hat eine Spalte Preise. Ein Preis aus der Truhe eines Teamkameraden ist mit Trupp markiert, einer, den ein anderer Spieler in deiner Nähe bekam, mit Nicht du. Gizmos erscheinen als Gizmo: welches, steht nicht im Replay.
+- **Schatzstunden.** Die Übersicht zeigt die nächste oder die laufende, mit Countdown und was verstärkt ist. 15 Minuten vor Beginn kommt eine Benachrichtigung, und solange sie läuft, steht im Spiel-Overlay SCHATZSTUNDE. In Schatzstunden geplünderte Truhen zählen mit Boost in deiner Chance auf Zugang zum Piratenshop. Einstellungen > Allgemein schaltet alles einzeln aus.
+
 ## 1.1.5
 
 - **Updates installieren sich selbst.** Gibt es eine neue Version, installiert die App sie, sobald Fortnite geschlossen ist. Abschalten kannst du das unten oder unter Einstellungen > Info.

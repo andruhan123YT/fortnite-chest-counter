@@ -242,7 +242,7 @@ fn inputs(app: &ChestApp) -> Inputs {
         today: n.today,
         last_match: n.last_match,
         treasures: n.treasures,
-        pirate_shop: chance_at_least_one(app.totals.with_squad(), PIRATE_SHOP_ACCESS.one_in),
+        pirate_shop: chance_at_least_one(app.totals.pirate_shop_chests(true), PIRATE_SHOP_ACCESS.one_in),
         in_match: n.in_match,
         match_start: app
             .match_joined

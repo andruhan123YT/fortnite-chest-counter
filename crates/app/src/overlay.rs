@@ -187,6 +187,22 @@ fn resized_scale(scale: f32, size: egui::Vec2, moved: egui::Vec2, axis: Axis) ->
 
 /// A small green "live" mark next to the title while a match is being played, with how
 /// long it has been going since the game loaded it.
+/// "TREASURE HOUR" while one runs.
+fn treasure_hour_badge(ui: &mut egui::Ui, scale: f32) {
+    egui::Frame::new()
+        .fill(theme::gold().gamma_multiply(0.16))
+        .corner_radius(egui::CornerRadius::same((8.0 * scale) as u8))
+        .inner_margin(egui::Margin::symmetric((6.0 * scale) as i8, (1.0 * scale) as i8))
+        .show(ui, |ui| {
+            ui.add(
+                egui::Label::new(
+                    RichText::new(tr("TREASURE HOUR")).font(theme::font(theme::BOLD, 9.5 * scale)).color(theme::gold()),
+                )
+                .extend(),
+            );
+        });
+}
+
 fn live_badge(ui: &mut egui::Ui, scale: f32, elapsed: Option<i64>) {
     egui::Frame::new()
         .fill(theme::opened().gamma_multiply(0.14))
@@ -251,6 +267,8 @@ pub struct Numbers {
     pub in_match: bool,
     /// Seconds since the game loaded the current match, from its log.
     pub match_secs: Option<i64>,
+    /// A Treasure Hour runs, and the player wants it on the overlay.
+    pub treasure_hour: bool,
 }
 
 /// A match that seems to run longer than this was left without the log saying so.
@@ -281,6 +299,8 @@ pub fn numbers(app: &ChestApp) -> Numbers {
             .match_joined
             .map(|at| (chrono::Utc::now() - at).num_seconds())
             .filter(|s| (0..LONGEST_MATCH).contains(s)),
+        treasure_hour: app.settings.treasure_hours.overlay
+            && crate::prizes::hour_at(&crate::prizes::treasure_hours(), chrono::Utc::now()).is_some(),
     }
 }
 
@@ -391,6 +411,9 @@ pub fn update(app: &mut ChestApp, ctx: &egui::Context) {
                     ui.add(caption(tr("CHESTS")));
                     if live {
                         live_badge(ui, scale, n.match_secs);
+                    }
+                    if n.treasure_hour {
+                        treasure_hour_badge(ui, scale);
                     }
                 });
                 ui.add_space(2.0 * scale);

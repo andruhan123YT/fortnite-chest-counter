@@ -163,6 +163,25 @@ pub struct Settings {
     pub set_aside: BTreeMap<String, Profile>,
     pub language: crate::i18n::Lang,
     pub theme: crate::theme::ColorTheme,
+    pub treasure_hours: TreasureHourSettings,
+}
+
+/// Where Treasure Hours show up.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TreasureHourSettings {
+    /// A notification 15 minutes before one starts.
+    pub remind: bool,
+    /// The banner on Overview: the next one, or the one running.
+    pub banner: bool,
+    /// A badge on the in-game overlay while one runs.
+    pub overlay: bool,
+}
+
+impl Default for TreasureHourSettings {
+    fn default() -> Self {
+        Self { remind: true, banner: true, overlay: true }
+    }
 }
 
 impl Default for Settings {
@@ -202,6 +221,7 @@ impl Default for Settings {
             set_aside: BTreeMap::new(),
             language: crate::i18n::Lang::En,
             theme: crate::theme::ColorTheme::Midnight,
+            treasure_hours: TreasureHourSettings::default(),
         }
     }
 }

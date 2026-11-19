@@ -3,6 +3,12 @@
 Her sürüm için kısa notlar. Uygulama yenilerini bir güncellemeden sonra bir kez gösterir;
 Ayarlar > Hakkında > Yenilikler onları yeniden gösterir.
 
+## 1.1.6
+
+- **Takımının sandıkları haritada.** Uygulamayı kullanan takım arkadaşları, yağmaladıkları her sandıkla birlikte Harita'da görünür, her biri kendi renginde. Ne zaman olduğunu ve kaçıncı sandık olduğunu görmek için birine tıkla. Bunun için Çevrimiçi artık her sandığının ne zaman, ne türde ve nerede olduğunu da gönderiyor, önceki maçların dahil. Ayarlar > Çevrimiçi'nden kapatılır.
+- **Hangi ödülü kazandın.** Haftalık ödüller ve korsan dükkânı erişimi artık adıyla, zamanıyla ve çıktığı sandıkla görünüyor, maçta ve maç sonrası bildirimde; maç listesinde Ödüller sütunu var. Takım arkadaşının bulduğu ödül Takım, yakındaki başka bir oyuncunun aldığı Sen değil diye işaretlenir. Gizmo'lar Gizmo olarak görünür: hangisi olduğu tekrar oynatmada yok.
+- **Hazine Saatleri.** Genel Bakış bir sonrakini ya da süreni geri sayım ve neyin artırıldığıyla gösterir. Başlamadan 15 dakika önce bildirim gelir, sürerken oyun içi katmanda HAZİNE SAATİ yazar. Hazine Saatlerinde yağmalanan sandıklar korsan dükkânı erişimi şansında artışla sayılır. Her biri Ayarlar > Genel'den kapatılır.
+
 ## 1.1.5
 
 - **Güncellemeler kendiliğinden yüklenir.** Yeni bir sürüm çıktığında uygulama onu Fortnite kapanır kapanmaz yükler. Bunu aşağıdan ya da Ayarlar > Hakkında bölümünden kapatabilirsin.

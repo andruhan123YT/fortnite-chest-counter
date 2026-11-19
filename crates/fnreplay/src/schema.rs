@@ -34,6 +34,10 @@ pub enum Decoder {
     /// `FUniqueNetIdRepl`: a player's online id, such as an Epic account id, as lowercase
     /// hex (or the plain string for ids sent unencoded).
     NetId,
+    /// The first string (`FString`: length, ASCII, NUL) found byte-aligned anywhere in
+    /// the payload. For a struct whose layout is not worth decoding field by field but
+    /// that carries one text value, such as an id after a small header.
+    EmbeddedString,
     /// Counts as a change but is not decoded.
     Skip,
     /// A fast array field of a `_ClassNetCache` group. Every changed element is reported
@@ -197,6 +201,20 @@ fn read_net_id(r: &mut BitReader<'_>) -> Option<String> {
     (!id.is_empty() && !r.is_error()).then_some(id)
 }
 
+/// Longest text `Decoder::EmbeddedString` looks for.
+const MAX_EMBEDDED: usize = 256;
+
+fn embedded_string(bytes: &[u8]) -> Option<String> {
+    (0..bytes.len().saturating_sub(5)).find_map(|at| {
+        let len = i32::from_le_bytes(bytes[at..at + 4].try_into().ok()?);
+        let len = usize::try_from(len).ok().filter(|&n| (2..=MAX_EMBEDDED).contains(&n))?;
+        let text = bytes.get(at + 4..at + 4 + len)?;
+        let (nul, chars) = text.split_last()?;
+        (*nul == 0 && chars.iter().all(|b| (0x20..0x7f).contains(b)))
+            .then(|| String::from_utf8_lossy(chars).into_owned())
+    })
+}
+
 pub(crate) fn decode(decoder: Decoder, r: &mut BitReader<'_>) -> Value {
     let value = match decoder {
         Decoder::Bit => Value::Bool(r.read_bit()),
@@ -221,6 +239,10 @@ pub(crate) fn decode(decoder: Decoder, r: &mut BitReader<'_>) -> Value {
                 .map_or(Value::None, Value::Movement);
         }
         Decoder::NetId => read_net_id(r).map_or(Value::None, Value::Str),
+        Decoder::EmbeddedString => {
+            let bytes = r.read_bytes(r.bits_left() / 8);
+            return embedded_string(&bytes).map_or(Value::None, Value::Str);
+        }
         Decoder::Skip | Decoder::FastArray => Value::None,
     };
     if r.is_error() {
@@ -268,4 +290,23 @@ fn read_rep_movement(
         movement.linear_velocity = Default::default();
     }
     Some(movement)
+}
+
+#[cfg(test)]
+mod embedded_tests {
+    use super::embedded_string;
+
+    #[test]
+    fn finds_the_string_after_a_header() {
+        // The shape of a prize id: a few header bytes, then the FString.
+        let mut bytes = vec![0x0a, 0x64, 0x00, 0x03, 0x00];
+        let id = b"DelilahPrize:dpid_item17\0";
+        bytes.extend_from_slice(&(id.len() as i32).to_le_bytes());
+        bytes.extend_from_slice(id);
+        bytes.extend_from_slice(&[0x01, 0x02]);
+        assert_eq!(embedded_string(&bytes).as_deref(), Some("DelilahPrize:dpid_item17"));
+        assert_eq!(embedded_string(&[1, 2, 3]), None);
+        // A length that runs past the end is not a string.
+        assert_eq!(embedded_string(&[40, 0, 0, 0, b'a', 0]), None);
+    }
 }

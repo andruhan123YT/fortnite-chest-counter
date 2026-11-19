@@ -20,9 +20,20 @@ use crate::theme;
 const OPENED: Color32 = Color32::from_rgb(255, 222, 0);
 const BROKEN: Color32 = Color32::from_rgb(255, 40, 130);
 const TEAMMATE: Color32 = Color32::from_rgb(80, 200, 255);
+/// Squadmates who run the app too, one color each, handed out in order of name. Picked
+/// like the colors above, and apart from them.
+const FRIENDS: [Color32; 4] = [
+    Color32::from_rgb(255, 140, 30),
+    Color32::from_rgb(40, 220, 190),
+    Color32::from_rgb(170, 255, 60),
+    Color32::from_rgb(255, 255, 255),
+];
 const MARKER_RADIUS: f32 = 6.0;
 /// Radius of the white ring around the picked marker.
 const PICKED_RING: f32 = 13.0;
+/// The ring around a chest a prize came out of, in the app's treasure color.
+const PRIZE_RING: f32 = 10.0;
+const PRIZE: Color32 = Color32::from_rgb(196, 140, 255);
 /// Width of the dark ring around every marker.
 const OUTLINE: f32 = 3.0;
 /// How much of the picture's brightness "Dim map" keeps.
@@ -177,7 +188,9 @@ fn scope_help(settings: &Settings) -> String {
 
 pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
     app.map_ui.ensure_picture(ui.ctx());
-    ui.horizontal(|ui| {
+    // Wraps in a narrow window: a row wider than the page pushed the map and its legend
+    // past the right edge.
+    ui.horizontal_wrapped(|ui| {
         ui.label(theme::title(tr("Map")));
         ui.add_space(16.0);
         let ui_state = &mut app.map_ui;
@@ -228,6 +241,7 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
         })
         .collect();
 
+    let friends = Friends::of(&app.store.matches);
     let mut markers = Vec::new();
     for m in &matches {
         let who = m.player_name(settings.name_in(m));
@@ -238,10 +252,25 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
             if !mine && !(mate && app.map_ui.show_squad) {
                 continue;
             }
+            let friend = friends.slot(m, p);
             for (e, opened) in p.in_order() {
                 let (Some(x), Some(y)) = (e.x, e.y) else { continue };
                 let chest = ChestRef { match_id: &m.id, player: &p.name, time: e.time, opened };
-                markers.push(Marker { point: plot_point(x, y), series: Series::of(mine, opened), chest });
+                markers.push(Marker { point: plot_point(x, y), series: Series::of(mine, opened, friend), chest });
+            }
+        }
+    }
+    let draw_order = Series::draw_order(friends.names.len());
+    // The chests prizes came out of get a ring in the treasure color.
+    let mut prize_rings: Vec<[f64; 2]> = Vec::new();
+    for m in &matches {
+        let nick = settings.name_in(m);
+        for t in m.treasures(nick) {
+            let Some(src) = &t.source else { continue };
+            let mine = same_name(&src.player, m.player_name(nick));
+            let Some(e) = prize_chest(m, src).filter(|_| mine || app.map_ui.show_squad) else { continue };
+            if let (Some(x), Some(y)) = (e.x, e.y) {
+                prize_rings.push(plot_point(x, y));
             }
         }
     }
@@ -260,19 +289,19 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
     let plot_id = ui.make_persistent_id("chest_map");
     let hidden = PlotMemory::load(ui.ctx(), plot_id).map(|m| m.hidden_items).unwrap_or_default();
     let shown_series = |series: Series| {
-        !hidden.contains(&ItemId::new(series.style().0)) && (series != Series::Teammate || app.map_ui.show_squad)
+        !hidden.contains(&ItemId::new(series.style(&friends).0)) && (series.is_mine() || app.map_ui.show_squad)
     };
 
     // A picked chest that is no longer shown (another scope, a hidden series, a match
     // that changed) is dropped.
     let resolve_picked = |picked: &Option<PickedChest>| {
-        picked.as_ref().and_then(|c| resolve(&matches, c, &settings)).filter(|p| shown_series(p.series))
+        picked.as_ref().and_then(|c| resolve(&matches, c, &settings, &friends)).filter(|p| shown_series(p.series))
     };
     let mut picked = resolve_picked(&app.map_ui.picked);
     if picked.is_none() {
         app.map_ui.picked = None;
     }
-    let step = picked_panel(ui, picked.as_ref(), scope);
+    let step = picked_panel(ui, picked.as_ref(), scope, &friends);
     if let (Some(index), Some(p)) = (step, &picked) {
         if let Some(&(e, opened)) = p.player.in_order().get(index) {
             app.map_ui.picked = Some(PickedChest {
@@ -302,20 +331,32 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
             // Empty name: the picture stays out of the legend.
             plot.image(PlotImage::new("", texture, center, extent).tint(tint).allow_hover(false));
         }
-        for series in Series::DRAW_ORDER {
-            let (name, color, shape) = series.style();
+        for &series in &draw_order {
+            let (name, color, shape) = series.style(&friends);
             for marker in markers.iter().filter(|m| m.series == series) {
                 plot.points(
-                    Points::new(name, PlotPoints::from(vec![marker.point]))
+                    Points::new(name.clone(), PlotPoints::from(vec![marker.point]))
                         .color(Color32::BLACK)
                         .radius(MARKER_RADIUS + OUTLINE)
                         .shape(shape),
                 );
                 plot.points(
-                    Points::new(name, PlotPoints::from(vec![marker.point]))
+                    Points::new(name.clone(), PlotPoints::from(vec![marker.point]))
                         .color(color)
                         .radius(MARKER_RADIUS)
                         .shape(shape),
+                );
+            }
+        }
+        let prizes = tr("Prizes");
+        for &point in &prize_rings {
+            for (color, radius) in [(Color32::BLACK, PRIZE_RING + 1.5), (PRIZE, PRIZE_RING)] {
+                plot.points(
+                    Points::new(prizes, PlotPoints::from(vec![point]))
+                        .color(color)
+                        .radius(radius)
+                        .filled(false)
+                        .shape(MarkerShape::Circle),
                 );
             }
         }
@@ -349,7 +390,7 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
     // so on equal distance the later one wins.
     let near = |pos: egui::Pos2| {
         let mut best: Option<(&Marker<'_>, f32)> = None;
-        for series in Series::DRAW_ORDER.into_iter().filter(|&s| shown_series(s)) {
+        for &series in draw_order.iter().filter(|&&s| shown_series(s)) {
             for m in markers.iter().filter(|m| m.series == series) {
                 let d = shown.transform.position_from_point(&PlotPoint::new(m.point[0], m.point[1])).distance(pos);
                 if d <= MARKER_RADIUS + OUTLINE + 2.0 && best.is_none_or(|(_, b)| d <= b) {
@@ -374,30 +415,109 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
     }
 }
 
+/// Squadmates whose own chests came from the sync server, each with a place in the
+/// legend. Gathered over every match, so a squadmate keeps their color across scopes.
+struct Friends {
+    /// Epic account ids, in order of name.
+    ids: Vec<String>,
+    names: Vec<String>,
+}
+
+impl Friends {
+    fn of(matches: &[MatchRecord]) -> Self {
+        let mut seen: Vec<(String, String)> = Vec::new();
+        for m in matches {
+            for p in m.roster() {
+                let Some(id) = p.epic_id.as_deref().filter(|id| has_chests(m, id)) else { continue };
+                if !seen.iter().any(|(known, _)| known == id) {
+                    seen.push((id.to_owned(), p.name.clone()));
+                }
+            }
+        }
+        seen.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()).then_with(|| a.0.cmp(&b.0)));
+        let (ids, names) = seen.into_iter().unzip();
+        Self { ids, names }
+    }
+
+    /// The place of `p` in the legend when their chests in `m` came from their own app.
+    fn slot(&self, m: &MatchRecord, p: &PlayerChests) -> Option<usize> {
+        let id = p.epic_id.as_deref().filter(|id| has_chests(m, id))?;
+        self.ids.iter().position(|known| known == id)
+    }
+
+    fn color(slot: usize) -> Color32 {
+        FRIENDS[slot % FRIENDS.len()]
+    }
+}
+
+/// The sync server gave this match the chests of the player with this Epic account id.
+/// The chest a prize came out of, among the chests of this replay's players.
+fn prize_chest<'a>(m: &'a MatchRecord, src: &chests::TreasureSource) -> Option<&'a ChestEvent> {
+    let time = src.time?;
+    let player = m.players.iter().find(|p| same_name(&p.name, &src.player))?;
+    let list = if src.broken { &player.broken } else { &player.opened };
+    list.iter().find(|e| e.time == time)
+}
+
+/// What came out of the picked chest, when it rolled a prize.
+fn prize_from(p: &Resolved<'_>) -> Option<String> {
+    let t = p.record.treasures.iter().find(|t| {
+        t.source.as_ref().is_some_and(|s| {
+            same_name(&s.player, &p.player.name) && s.time == Some(p.event.time) && s.broken != p.opened
+        })
+    })?;
+    Some(match p.record.prize_of(t, "") {
+        crate::record::Prize::Named(id) => crate::prizes::title(id),
+        crate::record::Prize::Gizmo => tr("Gizmo").to_owned(),
+        crate::record::Prize::Unknown => tr("Prize").to_owned(),
+    })
+}
+
+fn has_chests(m: &MatchRecord, id: &str) -> bool {
+    m.online.iter().any(|f| f.player == id && f.chests.is_some())
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Series {
     Opened,
     Broken,
+    /// A squadmate as far as the user's replay saw them.
     Teammate,
+    /// A squadmate's own chests, by their place in `Friends`.
+    Friend(usize),
 }
 
 impl Series {
     /// Bottom to top.
-    const DRAW_ORDER: [Series; 3] = [Self::Teammate, Self::Broken, Self::Opened];
+    fn draw_order(friends: usize) -> Vec<Series> {
+        let mut order = vec![Self::Teammate];
+        order.extend((0..friends).map(Self::Friend));
+        order.extend([Self::Broken, Self::Opened]);
+        order
+    }
 
-    fn of(mine: bool, opened: bool) -> Self {
-        match (mine, opened) {
-            (false, _) => Self::Teammate,
-            (true, true) => Self::Opened,
-            (true, false) => Self::Broken,
+    fn of(mine: bool, opened: bool, friend: Option<usize>) -> Self {
+        match (mine, opened, friend) {
+            (false, _, Some(slot)) => Self::Friend(slot),
+            (false, _, None) => Self::Teammate,
+            (true, true, _) => Self::Opened,
+            (true, false, _) => Self::Broken,
         }
     }
 
-    fn style(self) -> (&'static str, Color32, MarkerShape) {
+    fn is_mine(self) -> bool {
+        matches!(self, Self::Opened | Self::Broken)
+    }
+
+    fn style(self, friends: &Friends) -> (String, Color32, MarkerShape) {
         match self {
-            Self::Opened => (tr("Opened"), OPENED, MarkerShape::Circle),
-            Self::Broken => (tr("Broken"), BROKEN, MarkerShape::Square),
-            Self::Teammate => (tr("Teammates"), TEAMMATE, MarkerShape::Diamond),
+            Self::Opened => (tr("Opened").to_owned(), OPENED, MarkerShape::Circle),
+            Self::Broken => (tr("Broken").to_owned(), BROKEN, MarkerShape::Square),
+            Self::Teammate => (tr("Teammates").to_owned(), TEAMMATE, MarkerShape::Diamond),
+            Self::Friend(slot) => {
+                let name = friends.names.get(slot).cloned().unwrap_or_default();
+                (name, Friends::color(slot), MarkerShape::Up)
+            }
         }
     }
 }
@@ -437,19 +557,25 @@ struct Resolved<'a> {
     total: usize,
 }
 
-fn resolve<'a>(matches: &[&'a MatchRecord], chest: &PickedChest, settings: &Settings) -> Option<Resolved<'a>> {
+fn resolve<'a>(
+    matches: &[&'a MatchRecord],
+    chest: &PickedChest,
+    settings: &Settings,
+    friends: &Friends,
+) -> Option<Resolved<'a>> {
     let record = *matches.iter().find(|m| m.id == chest.match_id)?;
     let player = record.roster().find(|p| same_name(&p.name, &chest.player))?;
     let events = player.in_order();
     let index = events.iter().position(|&(e, opened)| e.time == chest.time && opened == chest.opened)?;
     let (event, opened) = events[index];
-    let series = Series::of(same_name(&player.name, record.player_name(settings.name_in(record))), opened);
+    let mine = same_name(&player.name, record.player_name(settings.name_in(record)));
+    let series = Series::of(mine, opened, friends.slot(record, player));
     Some(Resolved { record, player, event, opened, series, index, total: events.len() })
 }
 
 /// The line above the map about the picked chest, with arrows to step through the other
 /// chests of the same player in the same match. Returns the index an arrow stepped to.
-fn picked_panel(ui: &mut egui::Ui, picked: Option<&Resolved<'_>>, scope: Scope) -> Option<usize> {
+fn picked_panel(ui: &mut egui::Ui, picked: Option<&Resolved<'_>>, scope: Scope, friends: &Friends) -> Option<usize> {
     let mut step = None;
     ui.horizontal_wrapped(|ui| {
         ui.set_min_height(26.0);
@@ -472,14 +598,19 @@ fn picked_panel(ui: &mut egui::Ui, picked: Option<&Resolved<'_>>, scope: Scope) 
         };
         let what = trf("{0} a {1}", &[&verb, &theme::chest_phrase(p.event.kind)]);
         let (index, total) = (p.index + 1, p.total);
-        if p.series == Series::Teammate {
-            ui.label(RichText::new(trf("{0} ({1})", &[&p.player.name, &what])).strong().color(TEAMMATE));
+        if !p.series.is_mine() {
+            let color = p.series.style(friends).1;
+            ui.label(RichText::new(trf("{0} ({1})", &[&p.player.name, &what])).strong().color(color));
             ui.label(trf("their chest {0} of {1} in this match", &[&index, &total]));
         } else {
             ui.label(RichText::new(what).strong().color(color));
             ui.label(trf("chest {0} of {1} in this match", &[&index, &total]));
         }
         ui.label(RichText::new(format!("{} {}", p.record.clock(p.event.time), p.record.clock_origin())).strong());
+        if let Some(prize) = prize_from(p) {
+            ui.label(theme::icon_text(theme::icon::STAR_FILLED, "*", 12.0).color(PRIZE));
+            ui.label(RichText::new(prize).strong().color(PRIZE));
+        }
         if scope != Scope::Selected {
             if let Some(at) = p.record.started_at {
                 ui.label(theme::caption(trf(
@@ -500,7 +631,8 @@ mod tests {
     use chests::{ChestEvent, ChestKind, PlayerChests};
 
     use super::{
-        picture_rect, plot_point, resolve, PickedChest, Series, MAP_ORIGIN_PX, MAP_PX_PER_UNIT, MAP_REFERENCE_PX,
+        picture_rect, plot_point, resolve, Friends, PickedChest, Series, MAP_ORIGIN_PX, MAP_PX_PER_UNIT,
+        MAP_REFERENCE_PX,
     };
     use crate::record::MatchRecord;
 
@@ -525,25 +657,61 @@ mod tests {
         let mut record =
             MatchRecord { id: "m".into(), owner: Some("Me".into()), players: vec![me], ..Default::default() };
         let pick = PickedChest { match_id: "m".into(), player: "me".into(), time: 10.0, opened: true };
-        let got = resolve(&[&record], &pick, &crate::config::Settings::default()).unwrap();
+        let got = resolve(&[&record], &pick, &crate::config::Settings::default(), &Friends::of(&[])).unwrap();
         // Broken at 5 s, then opened at 10 s: the second chest of two.
         assert_eq!((got.index, got.total, got.series), (1, 2, Series::Opened));
 
         // An earlier chest shows up (say, after a re-analysis): the pick follows its chest.
         record.players[0].opened.push(chest(1.0));
-        let got = resolve(&[&record], &pick, &crate::config::Settings::default()).unwrap();
+        let got = resolve(&[&record], &pick, &crate::config::Settings::default(), &Friends::of(&[])).unwrap();
         assert_eq!((got.index, got.total), (2, 3));
 
         // The same moment as a break is a different chest.
         assert!(resolve(
             &[&record],
             &PickedChest { opened: false, ..pick.clone() },
-            &crate::config::Settings::default()
+            &crate::config::Settings::default(),
+            &Friends::of(&[])
         )
         .is_none());
         // Picked chest gone: nothing is picked.
         record.players[0].opened.clear();
-        assert!(resolve(&[&record], &pick, &crate::config::Settings::default()).is_none());
+        assert!(resolve(&[&record], &pick, &crate::config::Settings::default(), &Friends::of(&[])).is_none());
+    }
+
+    #[test]
+    fn squadmates_with_their_own_chests_get_a_place_each_in_order_of_name() {
+        let mate = |name: &str, id: &str| PlayerChests {
+            name: name.into(),
+            team: Some(1),
+            epic_id: Some(id.into()),
+            opened: vec![chest(3.0)],
+            ..Default::default()
+        };
+        let found = |id: &str, chests: Option<Vec<crate::online::Chest>>| crate::online::Found {
+            match_id: "m".into(),
+            player: id.into(),
+            name: "x".into(),
+            opened: 1,
+            broken: 0,
+            bus: None,
+            chests,
+        };
+        let (zed, amy, old) = ("z".repeat(32), "a".repeat(32), "0".repeat(32));
+        let record = MatchRecord {
+            id: "m".into(),
+            owner: Some("Me".into()),
+            players: vec![mate("Zed", &zed), mate("amy", &amy), mate("Old", &old)],
+            // Old's app sends counts only: they stay a plain teammate.
+            online: vec![found(&zed, Some(Vec::new())), found(&amy, Some(Vec::new())), found(&old, None)],
+            ..Default::default()
+        };
+        let friends = Friends::of(std::slice::from_ref(&record));
+        assert_eq!(friends.names, ["amy", "Zed"]);
+        let series = |p: usize| Series::of(false, true, friends.slot(&record, &record.players[p]));
+        assert_eq!((series(0), series(1), series(2)), (Series::Friend(1), Series::Friend(0), Series::Teammate));
+        assert_eq!(Series::Friend(1).style(&friends).0, "Zed");
+        assert_eq!(Series::draw_order(2).last(), Some(&Series::Opened));
     }
 
     // World coordinates of v43.00 locations.

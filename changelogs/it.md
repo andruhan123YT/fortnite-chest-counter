@@ -3,6 +3,12 @@
 Note brevi per ogni versione. L'app mostra le nuove una volta dopo un aggiornamento, e
 Impostazioni > Informazioni > Novità le mostra di nuovo.
 
+## 1.1.6
+
+- **I forzieri della tua squadra sulla mappa.** I compagni che usano anche l'app compaiono sulla Mappa con ogni forziere che hanno saccheggiato, ognuno con il suo colore. Clicca su uno per vedere quando è stato e quale forziere era. Per questo, Online ora invia anche quando, di che tipo e dove era ciascuno dei tuoi forzieri, anche per le partite precedenti. Si disattiva in Impostazioni > Online.
+- **Quale premio hai ottenuto.** I premi settimanali e l'accesso al negozio pirata ora compaiono per nome, con l'ora e il forziere da cui sono usciti, nella partita e nella notifica dopo la partita; l'elenco delle partite ha una colonna Premi. Un premio trovato da un compagno è segnato Squadra, uno ottenuto da un altro giocatore vicino, Non tu. I Gizmo compaiono come Gizmo: il replay non dice quale.
+- **Ore del tesoro.** La Panoramica mostra la prossima, o quella in corso, con il conto alla rovescia e cosa è potenziato. Arriva una notifica 15 minuti prima dell'inizio, e mentre dura l'overlay di gioco mostra ORA DEL TESORO. I forzieri saccheggiati nelle ore del tesoro contano con il bonus nella tua probabilità di accesso al negozio pirata. Impostazioni > Generale disattiva ciascuna di queste cose.
+
 ## 1.1.5
 
 - **Gli aggiornamenti si installano da soli.** Quando esce una nuova versione, l'app la installa appena chiudi Fortnite. Puoi disattivarlo qui sotto o in Impostazioni > Informazioni.

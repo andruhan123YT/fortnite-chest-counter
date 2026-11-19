@@ -3,15 +3,16 @@
 //! replay sees every chest they loot, while ours only sees the ones near us.
 //!
 //! What is sent: the recorder's Epic account id and name, and per match its id, start
-//! time and opened and broken chests. To get a squadmate's numbers the app needs the
-//! match id and their Epic account id, both read from the user's own replay of it.
+//! time, opened and broken chests, and each of those chests: when, what kind and where.
+//! To get a squadmate's chests the app needs the match id and their Epic account id, both
+//! read from the user's own replay of it.
 
 use std::collections::{BTreeMap, HashMap};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::{Duration, Instant};
 
-use chests::same_name;
+use chests::{same_name, ChestEvent, ChestKind, PlayerChests};
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Serialize};
 
@@ -24,12 +25,55 @@ pub const SERVER: &str = "https://chests.l4ve.dev";
 const SERVER_ENV: &str = "FCC_SYNC_SERVER";
 /// How often the app looks for something to send or ask.
 pub const TICK: Duration = Duration::from_secs(60);
-/// The server's limits per request.
-const MAX_UPLOAD: usize = 500;
+/// Matches per upload. The server takes up to 500, but with every chest listed that is a
+/// couple of megabytes, past what it reads in one request.
+const MAX_UPLOAD: usize = 50;
+/// The server's limit per lookup.
 const MAX_LOOKUP: usize = 300;
 
+/// One chest as it goes over the wire: short names, positions in whole centimeters.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Chest {
+    /// Replay seconds.
+    pub t: f32,
+    pub k: ChestKind,
+    /// Opened; false when broken.
+    pub o: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub v: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub l: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<i32>,
+}
+
+impl Chest {
+    fn of(e: &ChestEvent, opened: bool) -> Self {
+        let cm = |v: Option<f64>| v.filter(|v| v.is_finite()).map(|v| v.round() as i32);
+        Self { t: e.time, k: e.kind, o: opened, v: e.in_vehicle, l: e.from_loot, x: cm(e.x), y: cm(e.y) }
+    }
+
+    pub fn event(&self) -> ChestEvent {
+        ChestEvent {
+            time: self.t,
+            kind: self.k,
+            in_vehicle: self.v,
+            x: self.x.map(f64::from),
+            y: self.y.map(f64::from),
+            from_loot: self.l,
+        }
+    }
+}
+
+/// A player's chests in a match, in the order they happened.
+fn chests_of(p: &PlayerChests) -> Vec<Chest> {
+    p.in_order().into_iter().map(|(e, opened)| Chest::of(e, opened)).collect()
+}
+
 /// A squadmate's own count of their chests in a match.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Found {
     #[serde(rename = "match")]
     pub match_id: String,
@@ -38,11 +82,30 @@ pub struct Found {
     pub name: String,
     pub opened: u32,
     pub broken: u32,
+    /// Replay seconds of the bus launch in the squadmate's replay. Their app sends it and
+    /// `chests` since 1.1.6.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bus: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chests: Option<Vec<Chest>>,
 }
 
 impl Found {
     pub fn total(&self) -> usize {
         (self.opened + self.broken) as usize
+    }
+
+    /// The squadmate's chests from their own replay, when their app sent them.
+    pub fn player(&self) -> Option<PlayerChests> {
+        let chests = self.chests.as_ref()?;
+        let (opened, broken) = chests.iter().partition::<Vec<&Chest>, _>(|c| c.o);
+        Some(PlayerChests {
+            name: self.name.clone(),
+            epic_id: Some(self.player.clone()),
+            opened: opened.into_iter().map(Chest::event).collect(),
+            broken: broken.into_iter().map(Chest::event).collect(),
+            ..Default::default()
+        })
     }
 }
 
@@ -54,6 +117,20 @@ struct UploadMatch {
     started: i64,
     opened: u32,
     broken: u32,
+    bus: Option<f32>,
+    chests: Vec<Chest>,
+}
+
+impl UploadMatch {
+    /// What the server holds once this went out, to tell when the match changed.
+    fn fingerprint(&self) -> u64 {
+        fnv(&serde_json::to_vec(&(self.opened, self.broken, self.bus, &self.chests)).unwrap_or_default())
+    }
+}
+
+/// FNV-1a: the same on every run and every build, unlike the standard library's hasher.
+fn fnv(bytes: &[u8]) -> u64 {
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, &b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3))
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -95,8 +172,10 @@ struct LookupReply {
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[serde(default)]
 struct Saved {
-    /// What the server holds for each of the user's matches: opened and broken.
-    uploaded: HashMap<String, (u32, u32)>,
+    /// `UploadMatch::fingerprint` of what went out last for each match. A match missing
+    /// here goes out again, chests and all, so matches sent by 1.1.5 and earlier get their
+    /// chests too.
+    sent: HashMap<String, u64>,
     found: Vec<Found>,
     /// Unix seconds each match was last asked about.
     asked: HashMap<String, i64>,
@@ -122,7 +201,8 @@ impl Job {
 
 #[derive(Debug, Default)]
 struct Outcome {
-    uploaded: Vec<(String, (u32, u32))>,
+    /// Match id and `UploadMatch::fingerprint`.
+    uploaded: Vec<(String, u64)>,
     asked: Vec<String>,
     found: Vec<Found>,
     total_sent: Option<(u64, bool)>,
@@ -175,14 +255,16 @@ fn plan(
         let Some(match_id) = m.match_id.as_deref().filter(|id| is_id(id)) else { continue };
         let Some(me) = m.recorder() else { continue };
         let Some(my_id) = me.epic_id.as_deref().filter(|id| is_id(id) && accounts.contains(id)) else { continue };
-        let counts = (me.opened.len() as u32, me.broken.len() as u32);
-        if saved.uploaded.get(match_id) != Some(&counts) {
-            uploads.entry((my_id.to_owned(), me.name.clone())).or_default().push(UploadMatch {
-                match_id: match_id.to_owned(),
-                started: m.started_at.map_or(0, unix),
-                opened: counts.0,
-                broken: counts.1,
-            });
+        let upload = UploadMatch {
+            match_id: match_id.to_owned(),
+            started: m.started_at.map_or(0, unix),
+            opened: me.opened.len() as u32,
+            broken: me.broken.len() as u32,
+            bus: m.bus_launch,
+            chests: chests_of(me),
+        };
+        if saved.sent.get(match_id) != Some(&upload.fingerprint()) {
+            uploads.entry((my_id.to_owned(), me.name.clone())).or_default().push(upload);
         }
 
         let Some(team) = me.team else { continue };
@@ -192,7 +274,9 @@ fn plan(
             .filter(|p| p.team == Some(team) && !p.is_bot && !same_name(&p.name, &me.name))
             .filter_map(|p| p.epic_id.clone().filter(|id| is_id(id)))
             .collect();
-        let known = |id: &String| saved.found.iter().any(|f| f.match_id == match_id && &f.player == id);
+        // Found without chests: their app may send them yet, after an update.
+        let known =
+            |id: &String| saved.found.iter().any(|f| f.match_id == match_id && &f.player == id && f.chests.is_some());
         if mates.is_empty() || lookup.len() >= MAX_LOOKUP {
             continue;
         }
@@ -296,7 +380,7 @@ fn work(agent: &ureq::Agent, job: Job) -> Outcome {
                 return out;
             }
         }
-        out.uploaded.extend(upload.matches.iter().map(|m| (m.match_id.clone(), (m.opened, m.broken))));
+        out.uploaded.extend(upload.matches.iter().map(|m| (m.match_id.clone(), m.fingerprint())));
     }
     if let Some(total) = &job.total {
         match post(agent, "/v1/total", total) {
@@ -460,7 +544,7 @@ impl Sync {
                 self.status.last_ok = Some(chrono::Local::now());
             }
         }
-        self.saved.uploaded.extend(out.uploaded);
+        self.saved.sent.extend(out.uploaded);
         if let Some((total, anonymous)) = out.total_sent {
             self.saved.total_sent = Some(total);
             self.saved.anonymous_sent = Some(anonymous);
@@ -507,7 +591,6 @@ pub fn new_install_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chests::PlayerChests;
 
     const ME: &str = "0123456789abcdef0123456789abcdef";
     const MATE: &str = "fedcba9876543210fedcba9876543210";
@@ -546,6 +629,25 @@ mod tests {
         }
     }
 
+    /// Notes `m` as uploaded the way `merge` does after the server took it.
+    fn mark_sent(saved: &mut Saved, m: &MatchRecord) {
+        let job = plan(std::slice::from_ref(m), &Saved::default(), "i", &[ME], TOTAL, false, 0);
+        let sent = &job.uploads[0].matches[0];
+        saved.sent.insert(sent.match_id.clone(), sent.fingerprint());
+    }
+
+    fn found(match_id: &str, opened: u32, chests: Option<Vec<Chest>>) -> Found {
+        Found {
+            match_id: match_id.into(),
+            player: MATE.into(),
+            name: "Mate".into(),
+            opened,
+            broken: 1,
+            bus: None,
+            chests,
+        }
+    }
+
     fn at(text: &str) -> i64 {
         unix(NaiveDateTime::parse_from_str(text, "%Y-%m-%d %H:%M").unwrap())
     }
@@ -568,7 +670,7 @@ mod tests {
         let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
         let m = record(id, "2026-11-09 18:00");
         let mut saved = Saved { total_sent: Some(TOTAL), anonymous_sent: Some(false), ..Default::default() };
-        saved.uploaded.insert(id.into(), (5, 0));
+        mark_sent(&mut saved, &m);
         saved.asked.insert(id.into(), at("2026-11-09 18:29"));
         // Uploaded with the same numbers and asked a minute ago: nothing to do yet.
         assert!(plan(std::slice::from_ref(&m), &saved, "i", &[ME], TOTAL, false, at("2026-11-09 18:30")).is_empty());
@@ -587,7 +689,7 @@ mod tests {
             1
         );
         // Once every squadmate is found, twice a day for three days, then never again.
-        saved.found.push(Found { match_id: id.into(), player: MATE.into(), name: "Mate".into(), opened: 9, broken: 1 });
+        saved.found.push(found(id, 9, Some(Vec::new())));
         assert!(plan(std::slice::from_ref(&m), &saved, "i", &[ME], TOTAL, false, at("2026-11-11 06:00")).is_empty());
         assert_eq!(
             plan(std::slice::from_ref(&m), &saved, "i", &[ME], TOTAL, false, at("2026-11-11 06:30")).lookup.len(),
@@ -644,17 +746,90 @@ mod tests {
     #[test]
     fn a_changed_count_is_sent_again() {
         let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let mut m = record(id, "2026-11-09 18:00");
         let mut saved = Saved::default();
-        saved.uploaded.insert(id.into(), (4, 0));
-        let job = plan(&[record(id, "2026-11-09 18:00")], &saved, "i", &[ME], TOTAL, false, at("2026-11-09 18:30"));
-        assert_eq!(job.uploads[0].matches[0].opened, 5);
+        mark_sent(&mut saved, &m);
+        m.players[0].opened.pop();
+        let job = plan(&[m], &saved, "i", &[ME], TOTAL, false, at("2026-11-09 18:30"));
+        assert_eq!(job.uploads[0].matches[0].opened, 4);
+    }
+
+    #[test]
+    fn every_chest_goes_out_with_its_place_and_time() {
+        let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let mut m = record(id, "2026-11-09 18:00");
+        m.bus_launch = Some(40.0);
+        let at_place = |time, x: f64, y: f64| ChestEvent {
+            time,
+            kind: ChestKind::Rare,
+            in_vehicle: false,
+            x: Some(x),
+            y: Some(y),
+            from_loot: false,
+        };
+        m.players[0].opened = vec![at_place(90.0, 4251.4, -54656.6)];
+        m.players[0].broken = vec![ChestEvent { in_vehicle: true, ..at_place(60.0, 1.0, 2.0) }];
+        let job = plan(&[m.clone()], &Saved::default(), "i", &[ME], TOTAL, false, at("2026-11-09 18:30"));
+        let sent = &job.uploads[0].matches[0];
+        assert_eq!(sent.bus, Some(40.0));
+        // In the order they happened, positions rounded to whole centimeters.
+        assert_eq!(
+            sent.chests,
+            vec![
+                Chest { t: 60.0, k: ChestKind::Rare, o: false, v: true, l: false, x: Some(1), y: Some(2) },
+                Chest { t: 90.0, k: ChestKind::Rare, o: true, v: false, l: false, x: Some(4251), y: Some(-54657) },
+            ]
+        );
+        let wire = serde_json::to_string(&sent.chests[1]).unwrap();
+        assert_eq!(wire, r#"{"t":90.0,"k":"Rare","o":true,"x":4251,"y":-54657}"#);
+
+        // Same counts, a chest moved (say, a fix to the analysis): it goes out again.
+        let mut saved = Saved::default();
+        mark_sent(&mut saved, &m);
+        m.players[0].opened[0].x = Some(10.0);
+        assert_eq!(plan(&[m], &saved, "i", &[ME], TOTAL, false, at("2026-11-09 18:30")).uploads.len(), 1);
+    }
+
+    #[test]
+    fn matches_sent_before_chests_were_sent_go_out_again_in_small_batches() {
+        // online.json of 1.1.5: counts only, nothing in `sent`.
+        let old: Saved = serde_json::from_str(r#"{"uploaded":{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa":[5,0]}}"#).unwrap();
+        let matches: Vec<MatchRecord> = (0..120).map(|i| record(&format!("{i:032x}"), "2026-11-09 18:00")).collect();
+        let job = plan(&matches, &old, "i", &[ME], TOTAL, false, at("2026-11-09 18:30"));
+        let sizes: Vec<usize> = job.uploads.iter().map(|u| u.matches.len()).collect();
+        assert_eq!(sizes, [50, 50, 20]);
+    }
+
+    #[test]
+    fn a_squadmate_found_without_chests_is_asked_about_again() {
+        let id = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        let m = record(id, "2026-11-01 18:00");
+        let mut saved = Saved { total_sent: Some(TOTAL), anonymous_sent: Some(false), ..Default::default() };
+        mark_sent(&mut saved, &m);
+        saved.asked.insert(id.into(), at("2026-11-09 06:00"));
+        // A week old and their app sent counts only: asked twice a day, not dropped.
+        saved.found.push(found(id, 9, None));
+        let job = plan(std::slice::from_ref(&m), &saved, "i", &[ME], TOTAL, false, at("2026-11-09 18:30"));
+        assert_eq!(job.lookup.len(), 1);
+        // With their chests in, a week-old match is done.
+        saved.found[0].chests = Some(Vec::new());
+        assert!(plan(&[m], &saved, "i", &[ME], TOTAL, false, at("2026-11-09 18:30")).is_empty());
+    }
+
+    #[test]
+    fn a_squadmates_chests_turn_back_into_their_player() {
+        let chest = |t, o| Chest { t, k: ChestKind::Normal, o, v: false, l: false, x: Some(5), y: None };
+        let p = found("m", 1, Some(vec![chest(30.0, false), chest(20.0, true)])).player().unwrap();
+        assert_eq!((p.name.as_str(), p.epic_id.as_deref(), p.opened.len(), p.broken.len()), ("Mate", Some(MATE), 1, 1));
+        assert_eq!((p.opened[0].time, p.opened[0].x, p.opened[0].y), (20.0, Some(5.0), None));
+        assert!(found("m", 1, None).player().is_none());
     }
 
     #[test]
     fn merging_keeps_one_entry_per_squadmate() {
         let path = std::env::temp_dir().join(format!("fcc-online-{}.json", std::process::id()));
         let mut sync = Sync::start(path.clone(), || {});
-        let f = |opened| Found { match_id: "m".into(), player: MATE.into(), name: "Mate".into(), opened, broken: 0 };
+        let f = |opened| found("m", opened, None);
         assert!(sync.merge(Outcome { found: vec![f(3)], ..Default::default() }));
         assert!(!sync.merge(Outcome { found: vec![f(3)], ..Default::default() }));
         assert!(sync.merge(Outcome { found: vec![f(4)], ..Default::default() }));

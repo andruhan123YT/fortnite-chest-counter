@@ -3,6 +3,12 @@
 Ghi chú ngắn cho mỗi phiên bản. Ứng dụng hiện những ghi chú mới một lần sau khi cập nhật,
 và Cài đặt > Giới thiệu > Có gì mới hiện lại chúng.
 
+## 1.1.6
+
+- **Rương của đội trên bản đồ.** Đồng đội cũng dùng ứng dụng hiện trên Bản đồ cùng mọi rương họ đã lục, mỗi người một màu. Bấm vào một rương để xem lúc nào và là rương thứ mấy. Để làm vậy, Trực tuyến giờ gửi thêm thời điểm, loại và vị trí của từng rương của bạn, kể cả các trận trước. Tắt trong Cài đặt > Trực tuyến.
+- **Bạn nhận được phần thưởng gì.** Phần thưởng tuần và quyền vào cửa hàng hải tặc giờ hiện theo tên, kèm thời điểm và rương đã cho ra, trong trận và trong thông báo sau trận; danh sách trận có cột Phần thưởng. Phần thưởng đồng đội tìm được được đánh dấu Đội, phần thưởng của người chơi khác gần bạn được đánh dấu Không phải bạn. Gizmo hiện là Gizmo: bản phát lại không ghi là cái nào.
+- **Giờ Kho Báu.** Tổng quan hiện Giờ Kho Báu tiếp theo hoặc đang diễn ra, kèm đếm ngược và những gì được tăng. Thông báo đến trước 15 phút, và trong lúc diễn ra lớp phủ trong trò chơi hiện GIỜ KHO BÁU. Rương lục trong Giờ Kho Báu được tính kèm mức tăng vào cơ hội vào cửa hàng hải tặc. Mỗi thứ đều tắt được trong Cài đặt > Chung.
+
 ## 1.1.5
 
 - **Bản cập nhật tự cài đặt.** Khi có phiên bản mới, ứng dụng sẽ cài đặt ngay khi Fortnite đóng. Tắt ở bên dưới hoặc trong Cài đặt > Giới thiệu.

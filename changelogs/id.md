@@ -3,6 +3,12 @@
 Catatan singkat untuk tiap versi. Aplikasi menampilkan yang baru sekali setelah pembaruan,
 dan Pengaturan > Tentang > Yang baru menampilkannya lagi.
 
+## 1.1.6
+
+- **Peti skuadmu di peta.** Rekan tim yang juga memakai aplikasi ini muncul di Peta dengan semua peti yang mereka jarah, masing-masing dengan warnanya sendiri. Klik salah satunya untuk melihat kapan dan peti ke berapa. Untuk ini, Online kini juga mengirim kapan, jenis, dan lokasi tiap petimu, termasuk dari pertandingan sebelumnya. Matikan di Pengaturan > Online.
+- **Hadiah apa yang kamu dapat.** Hadiah mingguan dan akses toko bajak laut kini tampil dengan nama, waktu, dan peti asalnya, di pertandingan dan di notifikasi setelahnya; daftar pertandingan punya kolom Hadiah. Hadiah dari peti rekan tim ditandai Skuad, hadiah pemain lain di dekatmu ditandai Bukan kamu. Gizmo tampil sebagai Gizmo: replay tidak mencatat yang mana.
+- **Jam Harta Karun.** Ringkasan menampilkan yang berikutnya atau yang sedang berlangsung, dengan hitung mundur dan apa yang ditingkatkan. Notifikasi muncul 15 menit sebelum mulai, dan selama berlangsung overlay game menampilkan JAM HARTA KARUN. Peti yang dijarah saat Jam Harta Karun dihitung dengan bonusnya dalam peluang akses toko bajak laut. Masing-masing bisa dimatikan di Pengaturan > Umum.
+
 ## 1.1.5
 
 - **Pembaruan terpasang otomatis.** Saat ada versi baru, aplikasi memasangnya begitu Fortnite ditutup. Matikan di bawah atau di Pengaturan > Tentang.

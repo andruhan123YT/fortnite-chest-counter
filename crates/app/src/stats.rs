@@ -25,6 +25,13 @@ pub struct Totals {
     pub adjustment: i64,
     /// Treasure hunt prizes received in counted matches.
     pub treasures: usize,
+    /// Squad chests looted during Treasure Hours, the player's own among them.
+    pub boosted_squad: usize,
+    pub boosted_mine: usize,
+    /// What Treasure Hours add to the chests Pirate Shop Access rolls on: a chest at ×1.5
+    /// counts as one and a half.
+    pub boost_extra_squad: f64,
+    pub boost_extra_mine: f64,
 }
 
 /// `ChestKind` ordered for display.
@@ -50,6 +57,14 @@ impl Totals {
     /// Mine plus teammates': what every squad-wide prize rolls on.
     pub fn with_squad(&self) -> u64 {
         self.mine() + self.teammates as u64
+    }
+
+    /// The chests Pirate Shop Access rolls on, with Treasure Hours' boost: the squad's,
+    /// or the player's own.
+    pub fn pirate_shop_chests(&self, squad: bool) -> u64 {
+        let (chests, extra) =
+            if squad { (self.with_squad(), self.boost_extra_squad) } else { (self.mine(), self.boost_extra_mine) };
+        (chests as f64 + extra).round() as u64
     }
 
     /// Squad chests in counted matches, without the base.
@@ -134,6 +149,7 @@ pub fn id_of(matches: &[MatchRecord], name: &str) -> Option<String> {
 
 pub fn totals(matches: &[MatchRecord], settings: &Settings) -> Totals {
     let mut t = Totals { base: settings.base_count, adjustment: settings.adjustment, ..Default::default() };
+    let hours = crate::prizes::treasure_hours();
     for m in counted(matches, settings) {
         t.counted_matches += 1;
         t.minutes += m.length_minutes();
@@ -149,6 +165,7 @@ pub fn totals(matches: &[MatchRecord], settings: &Settings) -> Totals {
         if t.best_match.as_ref().is_none_or(|(_, best)| summary.mine() > *best) {
             t.best_match = Some((m.id.clone(), summary.mine()));
         }
+        boost(&mut t, m, settings.name_in(m), &hours);
         if let Some(me) = m.me(settings.name_in(m)) {
             for e in &me.opened {
                 t.by_kind.entry(KindKey::of(e.kind)).or_default().0 += 1;
@@ -160,6 +177,29 @@ pub fn totals(matches: &[MatchRecord], settings: &Settings) -> Totals {
         }
     }
     t
+}
+
+/// Counts the squad's chests of `m` looted during a Treasure Hour.
+fn boost(t: &mut Totals, m: &MatchRecord, nick: &str, hours: &[crate::prizes::TreasureHour]) {
+    let Some(me) = m.me(nick) else { return };
+    let team = me.team;
+    for p in m.roster() {
+        let mine = chests::same_name(&p.name, &me.name);
+        if !mine && (team.is_none() || p.team != team) {
+            continue;
+        }
+        for (e, _) in p.in_order() {
+            let x = m.at(e.time).map_or(1.0, |at| crate::prizes::pirate_shop_boost(hours, at));
+            if x > 1.0 {
+                t.boosted_squad += 1;
+                t.boost_extra_squad += x - 1.0;
+                if mine {
+                    t.boosted_mine += 1;
+                    t.boost_extra_mine += x - 1.0;
+                }
+            }
+        }
+    }
 }
 
 /// The counted player's chests per day (the replay's local date), in counted matches.
@@ -278,6 +318,7 @@ mod tests {
             ],
             owner: None,
             treasures: Vec::new(),
+            nearby_prizes: Vec::new(),
             analyzer_version: ANALYZER_VERSION,
             packet_health: 1.0,
             match_id: None,
@@ -294,6 +335,27 @@ mod tests {
         m.players[0].name = name.into();
         m.players[0].epic_id = Some(id.into());
         m
+    }
+
+    #[test]
+    fn chests_looted_in_a_treasure_hour_count_with_its_boost() {
+        // A match whose chests fall at 20:00 UTC on 14 Nov, inside a Treasure Hour
+        // (Pirate Shop Access ×1.5), and one a day later, outside any.
+        let local = |utc: &str| {
+            let at = chrono::DateTime::parse_from_rfc3339(utc).unwrap().with_timezone(&chrono::Local);
+            at.naive_local().format("%Y-%m-%d %H:%M").to_string()
+        };
+        let boosted = recorded(&local("2026-11-14T20:00:00Z"), 4, "Me", "me");
+        let plain = recorded(&local("2026-11-15T20:00:00Z"), 6, "Me", "me");
+        let mut with_mate = boosted.clone();
+        with_mate.id = "mate".into();
+        with_mate.players[1].opened = vec![ev(ChestKind::Normal); 2];
+        let settings = Settings { nick: "Me".into(), account_id: "me".into(), ..Default::default() };
+        let t = totals(&[boosted, plain, with_mate], &settings);
+        assert_eq!((t.boosted_mine, t.boosted_squad), (8, 10));
+        // 14 chests of mine, 8 of them at ×1.5: 18 to roll on.
+        assert_eq!(t.pirate_shop_chests(false), 18);
+        assert_eq!(t.pirate_shop_chests(true), t.with_squad() + 5);
     }
 
     #[test]
@@ -421,6 +483,8 @@ mod tests {
                 name: "Mate".into(),
                 opened: theirs,
                 broken: 0,
+                bus: None,
+                chests: None,
             }];
             m
         };

@@ -239,8 +239,8 @@ colors!(
 
 /// Why teammates' numbers are a lower bound.
 pub fn squad_nearby_note() -> &'static str {
-    tr("Teammates' chests are counted only while they were near you, or while you spectated \
-        them: a replay records nothing else. Chests they looted far away are missing, so the real squad total is higher.")
+    tr("Squadmates who run the app count in full, from their own replays. For the rest, a replay records only \
+        the chests they looted near you or while you spectated them, so the real squad total can be higher.")
 }
 
 /// The chest type as a table heading: "Rare".
@@ -294,6 +294,7 @@ pub mod icon {
     pub const STAR: char = '\u{E734}';
     pub const STAR_FILLED: char = '\u{E735}';
     pub const ACCOUNT: char = '\u{E77B}';
+    pub const STOPWATCH: char = '\u{E916}';
 }
 
 /// An icon at `size`, or `fallback` text when Windows has no icon font.

@@ -3,6 +3,12 @@
 Notes courtes pour chaque version. L'appli affiche les nouvelles une fois après une mise à
 jour, et Paramètres > À propos > Nouveautés les réaffiche.
 
+## 1.1.6
+
+- **Les coffres de ton escouade sur la carte.** Les coéquipiers qui utilisent aussi l'appli apparaissent sur la Carte avec chaque coffre qu'ils ont pillé, chacun dans sa couleur. Clique sur un coffre pour voir quand c'était et lequel c'était. Pour cela, En ligne envoie aussi maintenant quand, de quel type et où était chacun de tes coffres, y compris pour tes parties précédentes. Paramètres > En ligne le désactive.
+- **Quelle récompense tu as eue.** Les récompenses de la semaine et l'accès à la boutique pirate s'affichent maintenant par leur nom, avec l'heure et le coffre d'où elles viennent, dans la partie et dans la notification d'après-partie ; la liste des parties a une colonne Récompenses. Une récompense trouvée par un coéquipier est marquée Escouade, celle d'un autre joueur près de toi, Pas toi. Les Gizmos s'affichent comme Gizmo : le replay ne dit pas lequel.
+- **Heures du trésor.** L'Aperçu affiche la prochaine, ou celle en cours, avec un compte à rebours et ce qui est boosté. Une notification arrive 15 minutes avant le début, et pendant qu'elle dure l'overlay en jeu affiche HEURE DU TRÉSOR. Les coffres pillés pendant les heures du trésor comptent avec leur bonus dans ta chance d'accès à la boutique pirate. Paramètres > Général désactive chacun de ces éléments.
+
 ## 1.1.5
 
 - **Les mises à jour s'installent toutes seules.** Quand une nouvelle version sort, l'app l'installe dès que Fortnite est fermé. Tu peux désactiver ça ci-dessous ou dans Paramètres > À propos.

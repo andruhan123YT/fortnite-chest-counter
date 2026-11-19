@@ -24,6 +24,10 @@ while Fortnite is closed.
 
 - **Every chest, every match**: opened, broken with a pickaxe or rammed with a vehicle,
   on a timeline and a map.
+- **Which prize, and when**: the weekly prizes and Pirate Shop Access by name, with the
+  chest they came from, yours or a squadmate's.
+- **Treasure Hours**: a countdown to the next one, a reminder 15 minutes before, and odds
+  that count the chests you loot in them with their boost.
 - **Squad chests and prize odds.** A prize goes to the whole squad. Squadmates who run the
   app with Online mode swap their exact counts with you; for the rest, add their replays.
 - **Overlay in the game, in OBS and in your Discord status.**
@@ -37,8 +41,8 @@ The app reads replay files and Fortnite's log on your PC. It doesn't touch the g
 memory or its network traffic, and never signs in to your Epic account.
 
 Online mode (on by default, Settings > Online) sends your Epic account id and name and
-your chest counts per match to `chests.l4ve.dev`; squadmates get them only for matches
-you played together. The Discord status, also on by default, shows your chests on your
+your chests per match (how many, when, what kind and where on the island) to
+`chests.l4ve.dev`; squadmates get them only for matches you played together. The Discord status, also on by default, shows your chests on your
 Discord profile while you play (Settings > OBS and Discord). Turn both off and nothing
 about you leaves your PC. Every detail is in the [guide](docs/guide.md#privacy).
 

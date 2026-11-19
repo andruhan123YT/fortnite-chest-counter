@@ -29,12 +29,17 @@ You don't need to enter your Fortnite name: the app reads it from your replays.
 ## Pages
 
 - **Overview**: your total, your squad's, your chance of Pirate Shop Access, treasures
-  received.
+  received, and the next Treasure Hour or the one running. A notification comes 15 minutes
+  before one starts, and the in-game overlay says TREASURE HOUR while it runs; chests
+  looted in it count with their boost in the Pirate Shop Access chance. Settings > General
+  turns each of these off.
 - **Matches**: every match with a timeline of each chest: opened, broken with a pickaxe or
-  rammed with a vehicle.
+  rammed with a vehicle, and the prizes it gave: which one, when, and whose chest. Prizes
+  other players got near you are marked "Not you" and count nowhere.
 - **Stats & odds**: chests by type, chests needed for a 25/50/90% chance, how lucky you've
   been.
-- **Map**: where you looted. Click a marker to see which chest it was and when.
+- **Map**: where you looted, and with Online mode, where squadmates who run the app did.
+  Click a marker to see which chest it was and when.
 - **Squad replays**: add your teammates' replays to fill in what yours missed.
 - **Leaderboard**: everyone with Online mode, for all time, this week or today.
 - **Settings**: language, theme, autostart, replay folder and archive, overlays, Online
@@ -66,7 +71,8 @@ A replay only records what happened near you, so squad numbers are a lower bound
 ("152+"). Two ways to fill them in:
 
 - **Online mode** (on by default): squadmates who run the app with Online mode on swap
-  their exact counts with you after each match. No friend list or code needed.
+  their chests with you after each match: the exact count, and each chest on the Map in
+  their own color. No friend list or code needed.
 - **Their replays**: ask for the files from `%LOCALAPPDATA%\FortniteGame\Saved\Demos` and
   drop them on the Squad replays page. Nothing gets counted twice.
 
@@ -90,23 +96,25 @@ it only reads that file. The script is open:
 - The app reads replays and Fortnite's log on your PC. It doesn't touch the game, its
   memory or its network traffic.
 - **Online mode** (on by default; Settings > Online turns it off) sends `chests.l4ve.dev`
-  your Epic account id and name, for each match its id, start time and your chests, your
-  total, whether to hide your name in the leaderboard, the app version and a random id of
-  this install. Squadmates get your numbers only for matches you played together. The
+  your Epic account id and name, for each match its id, start time and your chests (each
+  one with when, what kind and where on the island it was), your total, whether to hide
+  your name in the leaderboard, the app version and a random id of this install.
+  Squadmates get your chests only for matches you played together. The
   leaderboard shows your name (or Anonymous), matches, chests and best match, never ids.
   No replays, no other players' names, no analytics.
 - **Discord status** (on by default; Settings > OBS and Discord) goes to the Discord app
   on this PC, which shows it on your profile while Fortnite runs. The app never signs in
   to Discord.
 - **The OBS overlay** answers only this PC.
-- **Updates**: the app asks GitHub for the latest release every 10 minutes. Nothing about
-  you is sent.
+- **Updates**: the app asks GitHub for the latest release every 10 minutes, and for the
+  list of prize names and Treasure Hours every 6 hours. Nothing about you is sent.
 
 ## Known limitations
 
 - A buried chest can occasionally be missed: now and then the replay lacks the data
   needed to read it.
-- The replay shows that a treasure arrived, not which one.
+- The replay names the weekly prizes and Pirate Shop Access, not gizmos (golden
+  fireworks, extractors and the like): those show as "Gizmo".
 - The in-game overlay needs Windowed Fullscreen.
 - A Fortnite update can change the replay format. If the Overview warns that replays
   didn't decode cleanly, wait for an app update.

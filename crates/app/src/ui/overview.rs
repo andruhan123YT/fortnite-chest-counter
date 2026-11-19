@@ -27,6 +27,7 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
         });
         ui.add_space(8.0);
         warnings(app, ui);
+        treasure_hour(app, ui);
 
         let days = crate::stats::by_day(&app.store.matches, &app.settings);
         let today = chrono::Local::now().date_naive();
@@ -47,6 +48,68 @@ pub fn show(app: &mut ChestApp, ui: &mut egui::Ui) {
         ui.ctx().data_mut(|d| d.insert_temp(overflow_id, now));
         ui.ctx().request_repaint();
     }
+}
+
+/// The Treasure Hour running now, or the next one: when, and what it boosts. The player
+/// can hide it here and bring it back in Settings > General.
+fn treasure_hour(app: &mut ChestApp, ui: &mut egui::Ui) {
+    if !app.settings.treasure_hours.banner {
+        return;
+    }
+    let hours = crate::prizes::treasure_hours();
+    let now = chrono::Utc::now();
+    let (hour, live) = match crate::prizes::hour_at(&hours, now) {
+        Some(h) => (h.clone(), true),
+        None => match crate::prizes::next_hour(&hours, now) {
+            Some(h) => (h.clone(), false),
+            None => return,
+        },
+    };
+    let (start, end) = (hour.start.with_timezone(&chrono::Local), hour.end.with_timezone(&chrono::Local));
+    let accent = if live { theme::opened() } else { theme::gold() };
+    let mut hide = false;
+    let shown = theme::card().show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.horizontal(|ui| {
+            ui.add_space(6.0);
+            if live {
+                // Drawn: the bundled fonts have no bullet glyph.
+                let (dot, _) = ui.allocate_exact_size(egui::vec2(10.0, 14.0), egui::Sense::hover());
+                ui.painter().circle_filled(dot.center(), 4.0, accent);
+            } else {
+                ui.label(theme::icon_text(theme::icon::STOPWATCH, "", 15.0).color(accent));
+            }
+            let title = if live { tr("Treasure Hour now") } else { tr("Next Treasure Hour") };
+            ui.label(RichText::new(title).strong().size(15.0).color(accent));
+            let text = if live {
+                trf("ends in {0} · until {1}", &[&crate::prizes::countdown(hour.end - now), &end.format("%H:%M")])
+            } else {
+                let when = format!("{}–{}", start.format(&date_format(&start, "%a %d %b, %H:%M")), end.format("%H:%M"));
+                trf("{0} · in {1}", &[&when, &crate::prizes::countdown(hour.start - now)])
+            };
+            ui.label(text);
+            if !hour.confirmed {
+                ui.label(theme::caption(tr("expected")))
+                    .on_hover_text(tr("Not announced yet: the time follows the Treasure Hours so far and may change."));
+            }
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let close = ui
+                    .add(egui::Button::new(theme::icon_text(theme::icon::CLOSE, "x", 10.0)).frame(false))
+                    .on_hover_text(tr("Hide. Settings > General brings it back."));
+                hide = close.clicked();
+                ui.add(egui::Label::new(theme::caption(hour.boosts.text())).truncate());
+            });
+        });
+    });
+    let r = shown.response.rect;
+    ui.painter().rect_filled(egui::Rect::from_min_size(r.min, egui::vec2(4.0, r.height())), 2.0, accent);
+    if hide {
+        app.settings.treasure_hours.banner = false;
+        let _ = app.settings.save();
+    }
+    ui.add_space(8.0);
+    // The countdown moves on by itself.
+    ui.ctx().request_repaint_after(std::time::Duration::from_secs(30));
 }
 
 /// The total, and the last match next to it.
@@ -154,7 +217,6 @@ fn dashboard_tiles(
     let today_n = days.get(&today).copied().unwrap_or(0);
     let best_day = days.iter().max_by_key(|&(day, n)| (*n, *day));
     let best = t.best_match.as_ref().map_or(0, |(_, n)| *n);
-    let squad = t.with_squad();
     let rows: [[Tile; 2]; 3] = [
         [
             (tr("Today").into(), theme::thousands(today_n), theme::opened(), None),
@@ -182,7 +244,15 @@ fn dashboard_tiles(
                 tr("Squad").into(),
                 theme::squad_count(t.teammates as u64),
                 theme::squad(),
-                Some(tr("seen near you").into()),
+                // Squadmates who run the app count in full; the rest only near the player.
+                Some(
+                    if app.settings.online && app.online.squadmates() > 0 {
+                        tr("exact for app users")
+                    } else {
+                        tr("seen near you")
+                    }
+                    .into(),
+                ),
             ),
             (
                 tr("Treasures").into(),
@@ -200,20 +270,29 @@ fn dashboard_tiles(
         });
         ui.add_space(4.0);
     }
+    let solo = theme::percent(chance_at_least_one(t.pirate_shop_chests(false), PIRATE_SHOP_ACCESS.one_in));
+    // Chests looted in Treasure Hours count with their boost; then that says so instead
+    // of the plain odds.
+    let note = if t.boosted_squad > 0 {
+        trf("with squad · solo {0} · {1} boosted chests", &[&solo, &theme::thousands(t.boosted_squad as u64)])
+    } else {
+        trf("with squad · solo {0} · 1 in {1}", &[&solo, &theme::thousands(PIRATE_SHOP_ACCESS.one_in as u64)])
+    };
     theme::tile(
         ui,
         tr("Pirate Shop Access chance"),
-        &theme::percent(chance_at_least_one(squad, PIRATE_SHOP_ACCESS.one_in)),
+        &theme::percent(chance_at_least_one(t.pirate_shop_chests(true), PIRATE_SHOP_ACCESS.one_in)),
         theme::opened(),
-        Some(&trf(
-            "with squad · solo {0} · 1 in {1}",
-            &[
-                &theme::percent(chance_at_least_one(t.mine(), PIRATE_SHOP_ACCESS.one_in)),
-                &theme::thousands(PIRATE_SHOP_ACCESS.one_in as u64),
-            ],
-        )),
+        Some(&note),
     )
-    .on_hover_text(theme::squad_nearby_note());
+    .on_hover_text(if t.boosted_squad > 0 {
+        trf(
+            "{0}\n\n{1} squad chests were looted in Treasure Hours and count with their boost.",
+            &[&theme::squad_nearby_note(), &theme::thousands(t.boosted_squad as u64)],
+        )
+    } else {
+        theme::squad_nearby_note().to_owned()
+    });
 }
 
 fn counting_note(app: &ChestApp) -> String {

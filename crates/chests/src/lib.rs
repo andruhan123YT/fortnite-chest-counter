@@ -9,7 +9,7 @@ pub mod odds;
 pub mod schema;
 
 pub use analysis::{
-    analyze, analyze_replay, same_name, ChestEvent, MatchAnalysis, PlayerChests, Treasure, TreasureSource,
+    analyze, analyze_replay, same_name, ChestEvent, MatchAnalysis, NearbyPrize, PlayerChests, Treasure, TreasureSource,
 };
 pub use breaks::BreakConfig;
 pub use collect::{ChestKind, Collected};

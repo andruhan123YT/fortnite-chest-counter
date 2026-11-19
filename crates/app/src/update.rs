@@ -16,6 +16,8 @@ pub const REPO: &str = "andruhan123YT/fortnite-chest-counter";
 const EXE_ASSET: &str = "fortnite-chest-counter.exe";
 const SUM_ASSET: &str = "fortnite-chest-counter.exe.sha256";
 pub const CHECK_EVERY: Duration = Duration::from_secs(10 * 60);
+/// How often the prize list is fetched again, along with the update check.
+const PRIZES_EVERY: Duration = Duration::from_secs(6 * 3600);
 /// Replaces the GitHub address of the latest release, to try updates against a local copy.
 /// Debug builds only: a release must never be talked into downloading from elsewhere.
 #[cfg(debug_assertions)]
@@ -93,6 +95,12 @@ fn feed_url() -> String {
         return url;
     }
     format!("https://api.github.com/repos/{REPO}/releases/latest")
+}
+
+/// The prize list from the public repository.
+fn fetch_prizes() -> Result<String, String> {
+    let mut response = agent().get(crate::prizes::URL).call().map_err(|e| e.to_string())?;
+    response.body_mut().with_config().limit(256 * 1024).read_to_string().map_err(|e| e.to_string())
 }
 
 /// Asks GitHub for the latest release. `Ok(None)`: nothing newer, or no release yet.
@@ -220,6 +228,8 @@ pub enum Command {
 }
 
 pub enum Event {
+    /// A prize list fetched from GitHub, as text.
+    Prizes(String),
     Checking,
     Checked(Result<Option<Release>, String>),
     Progress(f32),
@@ -260,9 +270,16 @@ fn run(mut enabled: bool, commands: Receiver<Command>, events: Sender<Event>, re
         let _ = events.send(e);
         repaint();
     };
-    let checked = |emit: &dyn Fn(Event)| {
+    let mut prizes_fetched: Option<Instant> = None;
+    let mut checked = |emit: &dyn Fn(Event)| {
         emit(Event::Checking);
         emit(Event::Checked(check()));
+        if prizes_fetched.is_none_or(|at| at.elapsed() >= PRIZES_EVERY) {
+            prizes_fetched = Some(Instant::now());
+            if let Ok(text) = fetch_prizes() {
+                emit(Event::Prizes(text));
+            }
+        }
     };
     loop {
         let wait = if enabled { next.saturating_duration_since(Instant::now()) } else { CHECK_EVERY };

@@ -536,6 +536,17 @@ fn general(app: &mut ChestApp, ui: &mut egui::Ui) {
             theme::toggle(ui, &mut app.settings.notifications)
         });
     });
+    group(ui, Some(tr("Treasure Hours")), |rows| {
+        let th = &mut app.settings.treasure_hours;
+        rows.row(tr("Remind me 15 minutes before one starts"), None, None, |ui| theme::toggle(ui, &mut th.remind));
+        rows.row(
+            tr("Show the next one on Overview"),
+            Some(tr("Before and during one: when, and what it boosts.")),
+            None,
+            |ui| theme::toggle(ui, &mut th.banner),
+        );
+        rows.row(tr("Show TREASURE HOUR on the in-game overlay"), None, None, |ui| theme::toggle(ui, &mut th.overlay));
+    });
 }
 
 /// A drop-down of every language, each in its own name; returns the one picked. Opening it
@@ -990,14 +1001,15 @@ fn online(app: &mut ChestApp, ui: &mut egui::Ui) {
         })
     };
     let privacy = trf(
-        "Squadmates who run the app too get each other's own counts, so their chests count in full, not only the \
-         ones near you. Sent to {0}: your Epic account id and name, and for each match its id, start time and your \
-         opened and broken chests. Someone gets your numbers only for a match they played in your squad.",
+        "Squadmates who run the app too get each other's own chests, so their chests count in full and show on \
+         your map, not only the ones near you. Sent to {0}: your Epic account id and name, and for each match its \
+         id, start time and your opened and broken chests: when, what kind and where on the island. Someone gets \
+         them only for a match they played in your squad.",
         &[&crate::online::SERVER.trim_start_matches("https://")],
     );
     let mut name_changed = false;
     group(ui, Some(tr("Online")), |rows| {
-        rows.row(tr("Share my chest counts and get squadmates' exact counts"), None, Some(&privacy), |ui| {
+        rows.row(tr("Share my chests and get squadmates' exact counts"), None, Some(&privacy), |ui| {
             theme::toggle(ui, &mut app.settings.online)
         });
         if let Some((text, color)) = &note {
@@ -1176,7 +1188,8 @@ fn about(app: &mut ChestApp, ui: &mut egui::Ui) {
     });
     group(ui, Some(tr("Your data")), |rows| {
         let note = if app.settings.online {
-            tr("Matches and settings stay on this PC. Online mode sends only your chest counts per match.")
+            tr("Matches and settings stay on this PC. Online mode sends your chests per match: how many, when, what \
+                kind and where.")
         } else {
             tr("Matches and settings stay on this PC. Nothing about your matches goes online.")
         };

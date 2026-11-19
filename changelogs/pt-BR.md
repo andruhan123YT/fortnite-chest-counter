@@ -3,6 +3,12 @@
 Notas curtas de cada versão. O app mostra as novas uma vez depois de atualizar, e
 Configurações > Sobre > Novidades mostra de novo.
 
+## 1.1.6
+
+- **Os baús do seu esquadrão no mapa.** Companheiros que também usam o app aparecem no Mapa com cada baú que saquearam, cada um com sua cor. Clique em um para ver quando foi e qual baú era. Para isso, o Online agora também envia quando, de que tipo e onde foi cada um dos seus baús, inclusive de partidas anteriores. Desligue em Configurações > Online.
+- **Qual prêmio você ganhou.** Os prêmios semanais e o acesso à loja pirata agora aparecem pelo nome, com a hora e o baú de onde saíram, na partida e na notificação depois dela; a lista de partidas tem uma coluna Prêmios. Um prêmio que um companheiro achou é marcado como Esquadrão, um que outro jogador por perto ganhou, como Não é você. Gizmos aparecem como Gizmo: o replay não diz qual.
+- **Horas do Tesouro.** A Visão geral mostra a próxima, ou a que está rolando, com contagem regressiva e o que tem bônus. Chega uma notificação 15 minutos antes de começar, e enquanto dura o overlay do jogo mostra HORA DO TESOURO. Baús saqueados em Horas do Tesouro contam com o bônus na sua chance de acesso à loja pirata. Cada uma dessas coisas se desliga em Configurações > Geral.
+
 ## 1.1.5
 
 - **As atualizações se instalam sozinhas.** Quando sai uma versão nova, o app instala assim que o Fortnite é fechado. Dá para desligar aqui embaixo ou em Configurações > Sobre.

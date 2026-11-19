@@ -139,7 +139,12 @@ fn analyze(args: &[String]) -> Result<(), String> {
                 || "squad chest out of view".to_string(),
                 |src| format!("{} {} {}", src.player, if src.broken { "broke" } else { "opened" }, src.kind.label()),
             );
-            let _ = writeln!(out, "    {:>5}  treasure  {from}", record.clock(t.time));
+            let what = match (&t.prize, &t.found_by) {
+                (Some(id), Some(by)) => format!("  {} (found by {by})", crate::prizes::title(id)),
+                (Some(id), None) => format!("  {}", crate::prizes::title(id)),
+                (None, _) => String::new(),
+            };
+            let _ = writeln!(out, "    {:>5}  treasure  {from}{what}", record.clock(t.time));
         }
         for mate in &s.teammates {
             let _ = writeln!(out, "    teammate {}: {}", mate.name, mate.total());

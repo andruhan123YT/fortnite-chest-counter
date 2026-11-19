@@ -1,0 +1,41 @@
+{
+  "updated": "2026-11-19",
+  "prizes": {
+    "DelilahPrize:dpid_item1": { "week": 1, "kind": "outfit", "name": "Solid Gold A$AP Rocky" },
+    "DelilahPrize:dpid_item2": { "week": 1, "kind": "pickaxe", "name": "Solid Gold A$AP Rocky's Gauntlets" },
+    "DelilahPrize:dpid_item3": { "week": 1, "kind": "jam", "name": "No Trespassing" },
+    "DelilahPrize:dpid_item4": { "week": 1, "kind": "loading", "name": "Plunder in Paradise" },
+    "DelilahPrize:dpid_item5": { "week": 1, "kind": "car", "name": "Gold Mercedes-AMG G 63 Decal" },
+    "DelilahPrize:dpid_item14": { "week": 2, "kind": "outfit", "name": "Solid Gold Lil Uzi Vert" },
+    "DelilahPrize:dpid_item15": { "week": 2, "kind": "pickaxe", "name": "Diamond and Gold" },
+    "DelilahPrize:dpid_item16": { "week": 2, "kind": "jam", "name": "London" },
+    "DelilahPrize:dpid_item17": { "week": 2, "kind": "loading", "name": "So Kawaii" },
+    "DelilahPrize:dpid_item18": { "week": 2, "kind": "car", "name": "Gold Cadillac CT5-V Decal" },
+    "DelilahPrize:dpid_item19": { "week": 3, "kind": "outfit", "name": "Solid Gold Miku" },
+    "DelilahPrize:dpid_item20": { "week": 3, "kind": "pickaxe", "name": "Miku's Takarabako" },
+    "DelilahPrize:dpid_item21": { "week": 3, "kind": "jam", "name": "PPPP" },
+    "DelilahPrize:dpid_item22": { "week": 3, "kind": "loading", "name": "May Fortune Find You" },
+    "DelilahPrize:dpid_item23": { "week": 3, "kind": "car", "name": "Gold Chevrolet Corvette ZR1 Decal" },
+    "DelilahPrize:dpid_item24": { "week": 4, "kind": "outfit" },
+    "DelilahPrize:dpid_item25": { "week": 4, "kind": "pickaxe" },
+    "DelilahPrize:dpid_item26": { "week": 4, "kind": "jam" },
+    "DelilahPrize:dpid_item27": { "week": 4, "kind": "loading" },
+    "DelilahPrize:dpid_item28": { "week": 4, "kind": "car" },
+    "DelilahPrize:dpid_item29": { "week": 5, "kind": "outfit" },
+    "DelilahPrize:dpid_item30": { "week": 5, "kind": "pickaxe" },
+    "DelilahPrize:dpid_item31": { "week": 5, "kind": "jam" },
+    "DelilahPrize:dpid_item32": { "week": 5, "kind": "loading" },
+    "DelilahPrize:dpid_item33": { "week": 5, "kind": "car" },
+    "9f73f94d-2e61-4523-97d7-d61235d3365e": { "kind": "pirate_shop", "name": "Pirate Shop Access" }
+  },
+  "treasure_hours": [
+    { "start": "2026-11-07T19:00:00Z", "end": "2026-11-07T21:00:00Z", "boosts": { "pirate_shop": 1.5, "outfit": 7.5, "car": 10 } },
+    { "start": "2026-11-08T02:00:00Z", "end": "2026-11-08T04:00:00Z", "boosts": { "pirate_shop": 2, "outfit": 10, "car": 10 } },
+    { "start": "2026-11-14T19:00:00Z", "end": "2026-11-14T23:00:00Z", "boosts": { "pirate_shop": 1.5, "outfit": 7.5, "car": 10 } },
+    { "start": "2026-11-15T02:00:00Z", "end": "2026-11-15T04:00:00Z", "boosts": { "pirate_shop": 1.5, "outfit": 7.5, "car": 10 }, "confirmed": false },
+    { "start": "2026-11-21T19:00:00Z", "end": "2026-11-21T21:00:00Z", "boosts": { "pirate_shop": 1.5, "outfit": 7.5, "car": 10 }, "confirmed": false },
+    { "start": "2026-11-22T02:00:00Z", "end": "2026-11-22T04:00:00Z", "boosts": { "pirate_shop": 1.5, "outfit": 7.5, "car": 10 }, "confirmed": false },
+    { "start": "2026-11-28T19:00:00Z", "end": "2026-11-28T21:00:00Z", "boosts": { "pirate_shop": 1.5, "outfit": 7.5, "car": 10 }, "confirmed": false },
+    { "start": "2026-11-29T02:00:00Z", "end": "2026-11-29T04:00:00Z", "boosts": { "pirate_shop": 1.5, "outfit": 7.5, "car": 10 }, "confirmed": false }
+  ]
+}

@@ -95,13 +95,28 @@ fn pirate_shop(app: &ChestApp, ui: &mut egui::Ui) {
             ui.end_row();
             ui.label(RichText::new(tr("You + squad")).color(theme::squad())).on_hover_text(theme::squad_nearby_note());
             ui.label(theme::squad_count(squad));
-            ui.label(RichText::new(theme::percent(chance_at_least_one(squad, one_in))).strong().size(18.0));
+            ui.label(
+                RichText::new(theme::percent(chance_at_least_one(app.totals.pirate_shop_chests(true), one_in)))
+                    .strong()
+                    .size(18.0),
+            );
             ui.end_row();
             ui.label(RichText::new(tr("Just you")).color(theme::gold()));
             ui.label(theme::thousands(me));
-            ui.label(RichText::new(theme::percent(chance_at_least_one(me, one_in))).strong().size(18.0));
+            ui.label(
+                RichText::new(theme::percent(chance_at_least_one(app.totals.pirate_shop_chests(false), one_in)))
+                    .strong()
+                    .size(18.0),
+            );
             ui.end_row();
         });
+        if app.totals.boosted_squad > 0 {
+            ui.label(theme::caption(trf(
+                "{0} of these chests were looted in Treasure Hours, where Pirate Shop Access is likelier: the \
+                 chances count them with their boost.",
+                &[&theme::thousands(app.totals.boosted_squad as u64)],
+            )));
+        }
         ui.add_space(6.0);
         for target in [0.25, 0.5, 0.9] {
             let needed = chests_for_probability(target, one_in);

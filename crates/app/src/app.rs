@@ -103,6 +103,8 @@ pub struct ChestApp {
     pub online: crate::online::Sync,
     /// Whether the store currently holds squadmates' counts from the sync server.
     online_shown: bool,
+    /// The Treasure Hour the player was last reminded of, by its start.
+    reminded_hour: Option<chrono::DateTime<chrono::Utc>>,
     pub stream: crate::stream::Stream,
     pub discord: crate::discord::Discord,
     pub logo: egui::TextureHandle,
@@ -254,6 +256,7 @@ impl ChestApp {
             update: Default::default(),
             online,
             online_shown: false,
+            reminded_hour: None,
             stream: Default::default(),
             discord: Default::default(),
             logo: ctx.load_texture(
@@ -500,6 +503,14 @@ impl ChestApp {
                         && self.settings.notifications
                         && self.settings.counts(record.started_at)
                         && self.settings.owns(&record);
+                    // A named prize goes into the notification by name.
+                    let nick = self.settings.name_in(&record);
+                    let named_prize = record
+                        .treasures(nick)
+                        .iter()
+                        .any(|t| t.prize.is_some())
+                        .then(|| record.prizes_note(nick))
+                        .flatten();
                     self.store.upsert(*record);
                     self.online.nudge();
                     self.activity.progress = None;
@@ -514,9 +525,10 @@ impl ChestApp {
                                     &summary.opened,
                                     &summary.broken,
                                     &summary.mates,
-                                    &match summary.treasures {
-                                        0 => String::new(),
-                                        n => trf(" · treasure +{0}", &[&n]),
+                                    &match (summary.treasures, &named_prize) {
+                                        (0, _) => String::new(),
+                                        (_, Some(prize)) => trf(" · prize: {0}", &[prize]),
+                                        (n, None) => trf(" · treasure +{0}", &[&n]),
                                     },
                                     &theme::thousands(self.totals.mine()),
                                     &theme::thousands(self.totals.teammates as u64),
@@ -785,6 +797,33 @@ impl ChestApp {
 
     /// Runs the online mode, and puts squadmates' counts into the matches or takes them out
     /// when it is switched off.
+    /// Reminds the player of a Treasure Hour a quarter of an hour before it starts, and
+    /// keeps the overlay's badge and Overview's countdown moving.
+    fn process_treasure_hours(&mut self, ctx: &egui::Context) {
+        const REMIND_BEFORE: i64 = 15 * 60;
+        let hours = crate::prizes::treasure_hours();
+        let now = chrono::Utc::now();
+        let soon = crate::prizes::next_hour(&hours, now).filter(|h| (h.start - now).num_seconds() <= 86_400);
+        if soon.is_none() && crate::prizes::hour_at(&hours, now).is_none() {
+            return;
+        }
+        ctx.request_repaint_after(std::time::Duration::from_secs(30));
+        let Some(hour) = soon else { return };
+        let left = (hour.start - now).num_seconds();
+        let due = left <= REMIND_BEFORE && self.reminded_hour != Some(hour.start);
+        if !due || !self.settings.setup_done {
+            return;
+        }
+        self.reminded_hour = Some(hour.start);
+        if !self.settings.treasure_hours.remind {
+            return;
+        }
+        let (start, end) = (hour.start.with_timezone(&chrono::Local), hour.end.with_timezone(&chrono::Local));
+        let title = trf("Treasure Hour in {0} min", &[&((left + 59) / 60)]);
+        let body = format!("{}–{} · {}", start.format("%H:%M"), end.format("%H:%M"), hour.boosts.text());
+        platform::notify(&title, &body);
+    }
+
     fn process_online(&mut self, ctx: &egui::Context) {
         let enabled = self.settings.online && self.settings.setup_done;
         let accounts: Vec<&str> = self.settings.my_accounts().collect();
@@ -809,6 +848,11 @@ impl ChestApp {
         use crate::update::{Event as Update, AFTER_UPDATE_ARG};
         for event in self.updater.events() {
             match event {
+                Update::Prizes(text) => {
+                    if crate::prizes::accept(&text) {
+                        ctx.request_repaint();
+                    }
+                }
                 Update::Checking => self.update.checking = true,
                 Update::Checked(result) => {
                     self.update.checking = false;
@@ -1104,6 +1148,7 @@ impl eframe::App for ChestApp {
         self.process_tray(ctx);
         self.process_updates(ctx);
         self.process_online(ctx);
+        self.process_treasure_hours(ctx);
         self.process_game_log(ctx);
         self.handle_close(ctx);
         self.auto_update(ctx);

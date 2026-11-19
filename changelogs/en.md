@@ -4,6 +4,12 @@ Short notes per version. The app shows the new ones once after an update, and
 Settings > About > What's new shows them again. The other files in this folder hold the
 same notes in the other interface languages.
 
+## 1.1.6
+
+- **Your squad's chests on the map.** Squadmates who run the app too show up on the Map with every chest they looted, each in their own color. Click one to see when they got it and which of theirs it was. For this, Online now also sends when, what kind and where each of your chests was, for your earlier matches too. Settings > Online turns it off.
+- **Which prize you got.** Weekly prizes and Pirate Shop Access now show by name, with the time and the chest they came from, in the match and in the after-match notification; the Matches list has a Prizes column. A prize a squadmate found is marked Squad, one another player got near you is marked Not you. Gizmos show as Gizmo: the replay doesn't say which.
+- **Treasure Hours.** Overview shows the next one, or the one running, with a countdown and what it boosts. A notification comes 15 minutes before it starts, and the in-game overlay says TREASURE HOUR while it runs. Chests looted in Treasure Hours count with their boost in your Pirate Shop Access chance. Settings > General turns each of these off.
+
 ## 1.1.5
 
 - **Updates install automatically.** When a new version is out, the app installs it once Fortnite is closed. Turn it off below or in Settings > About.

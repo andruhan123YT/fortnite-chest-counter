@@ -130,6 +130,17 @@ impl LootKind {
     }
 }
 
+/// A golden prize chest: what it holds and who opened the chest that rolled it.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct PrizeChest {
+    /// When it first showed up.
+    pub time: f32,
+    /// `DelilahPrize:dpid_itemN` for weekly prizes, a bare GUID for Pirate Shop Access.
+    pub prize: Option<String>,
+    /// Pawn guid of the player who opened the chest.
+    pub pawn: u32,
+}
+
 #[derive(Debug, Default)]
 pub struct Collected {
     pub pawn_positions: HashMap<u32, Vec<(f32, Vec3)>>,
@@ -156,6 +167,8 @@ pub struct Collected {
     pub session_id: Option<String>,
     /// Treasure hunt prizes granted: `(time, player state)`.
     pub treasure_grants: Vec<(f32, u32)>,
+    /// Golden prize chests, by actor guid.
+    pub prize_chests: HashMap<u32, PrizeChest>,
     /// When the battle bus launched. `None` when the recording started after that.
     pub bus_launch: Option<f32>,
     game_phase: Option<u32>,
@@ -299,6 +312,19 @@ impl Visitor for Collected {
                 }
             }
             Some(Group::AbilitiesCache) => {}
+            Some(Group::PrizeChest) => {
+                // Fields can arrive over several updates; the first one dates the chest.
+                let chest = self
+                    .prize_chests
+                    .entry(u.actor_guid)
+                    .or_insert_with(|| PrizeChest { time: u.time, ..Default::default() });
+                if let Some(prize) = u.get("PrizeTemplateId").and_then(|v| v.as_str()).filter(|p| !p.is_empty()) {
+                    chest.prize = Some(prize.to_string());
+                }
+                if let Some(pawn) = u.get("OpeningPawn").and_then(|v| v.as_u32()).filter(|&p| p != 0) {
+                    chest.pawn = pawn;
+                }
+            }
             Some(Group::GamePhase) => {
                 let Some(phase) = u.get("GamePhase").and_then(|v| v.as_u32()) else { return };
                 if self.bus_launch.is_none() && bus_launched(self.game_phase, phase) {
