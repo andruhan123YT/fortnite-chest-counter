@@ -16,6 +16,7 @@ pub enum Group {
     AbilitiesCache = 8,
     GamePhase = 9,
     PrizeChest = 10,
+    GameStateCache = 11,
 }
 
 impl Group {
@@ -32,6 +33,7 @@ impl Group {
             Self::AbilitiesCache,
             Self::GamePhase,
             Self::PrizeChest,
+            Self::GameStateCache,
         ]
         .get(index)
         .copied()
@@ -168,6 +170,10 @@ pub fn fortnite_schema() -> Schema {
             .prop("PrizeTemplateId", Decoder::EmbeddedString)
             .prop("OpeningPawn", Decoder::IntPacked)
             .prop("SourceContainer", Decoder::IntPacked),
+        // The playlist the match was played in, such as `Playlist_NoBuildBR_Squad`.
+        GroupSpec::new("GameStateCache")
+            .paths(["/Game/Athena/Athena_GameState.Athena_GameState_C_ClassNetCache"])
+            .prop("CurrentPlaylistInfo", Decoder::StructObject),
     ])
 }
 
@@ -192,7 +198,8 @@ mod tests {
                 "Abilities",
                 "AbilitiesCache",
                 "GamePhase",
-                "PrizeChest"
+                "PrizeChest",
+                "GameStateCache"
             ]
         );
         assert_eq!(Group::from_index(6), Some(Group::GameState));

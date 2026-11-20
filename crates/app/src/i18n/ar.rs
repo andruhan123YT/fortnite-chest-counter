@@ -82,6 +82,7 @@ pub const TEXT: &[(&str, &str)] = &[
     ("Discord did not take the status: {0}", "رفض Discord الحالة: {0}"),
     ("Enjoying the app? Star it on GitHub so more players find it.", "أعجبك التطبيق؟ امنحه نجمة على GitHub ليجده لاعبون أكثر."),
     ("{0}: recorded by {1}, added to Squad replays", "{0}: سجّلها {1}، أُضيفت إلى إعادات الفرقة"),
+    ("{0}: {1} is not Battle Royale or Zero Build, not counted", "{0}: {1} ليس باتل رويال أو بدون بناء، لم يُحتسب"),
     ("{0}: teammate replay by {1}", "{0}: إعادة زميل الفريق {1}"),
     ("{0}: opened {1}, broke {2}, teammates {3}", "{0}: فُتح {1}، كُسر {2}، الزملاء {3}"),
     ("{0}: only {1}% of packets decoded; a Fortnite update may have changed the replay format", "{0}: قُرئ {1}% فقط من الحزم؛ ربما غيّر تحديث Fortnite تنسيق الإعادات"),

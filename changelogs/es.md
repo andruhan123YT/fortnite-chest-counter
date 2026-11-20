@@ -3,6 +3,10 @@
 Notas breves de cada versión. La app muestra las nuevas una vez tras actualizar, y
 Ajustes > Acerca de > Novedades las vuelve a mostrar.
 
+## 1.1.7
+
+- **Solo cuentan Battle Royale y Cero construcción, también en Clasificatorias.** Los cofres de Reload, Modo Creativo y otros modos ya no cuentan, y esas partidas salen de la lista. Las partidas que solo quedan en el archivo también se vuelven a contar con el análisis actual.
+
 ## 1.1.6
 
 - **Los cofres de tu escuadrón en el mapa.** Los compañeros que también usan la app aparecen en el Mapa con cada cofre que saquearon, cada uno en su color. Haz clic en uno para ver cuándo fue y qué número de cofre era. Para esto, En línea ahora también envía cuándo, de qué tipo y dónde fue cada uno de tus cofres, también de partidas anteriores. Se desactiva en Ajustes > En línea.

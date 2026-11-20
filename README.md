@@ -23,7 +23,8 @@ while Fortnite is closed.
 ## What it does
 
 - **Every chest, every match**: opened, broken with a pickaxe or rammed with a vehicle,
-  on a timeline and a map.
+  on a timeline and a map. Battle Royale and Zero Build only, ranked included; Reload and
+  other modes don't count.
 - **Which prize, and when**: the weekly prizes and Pirate Shop Access by name, with the
   chest they came from, yours or a squadmate's.
 - **Treasure Hours**: a countdown to the next one, a reminder 15 minutes before, and odds

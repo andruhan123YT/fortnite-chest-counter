@@ -3,6 +3,10 @@
 Note brevi per ogni versione. L'app mostra le nuove una volta dopo un aggiornamento, e
 Impostazioni > Informazioni > Novità le mostra di nuovo.
 
+## 1.1.7
+
+- **Contano solo Battle Royale e Zero costruzioni, Classificate comprese.** I forzieri di Reload, Creativa e altre modalità non contano più, e quelle partite escono dall'elenco. Anche le partite rimaste solo nell'archivio vengono ricontate con l'analisi attuale.
+
 ## 1.1.6
 
 - **I forzieri della tua squadra sulla mappa.** I compagni che usano anche l'app compaiono sulla Mappa con ogni forziere che hanno saccheggiato, ognuno con il suo colore. Clicca su uno per vedere quando è stato e quale forziere era. Per questo, Online ora invia anche quando, di che tipo e dove era ciascuno dei tuoi forzieri, anche per le partite precedenti. Si disattiva in Impostazioni > Online.

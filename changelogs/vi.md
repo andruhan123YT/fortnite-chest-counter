@@ -3,6 +3,10 @@
 Ghi chú ngắn cho mỗi phiên bản. Ứng dụng hiện những ghi chú mới một lần sau khi cập nhật,
 và Cài đặt > Giới thiệu > Có gì mới hiện lại chúng.
 
+## 1.1.7
+
+- **Chỉ tính Battle Royale và Zero Build, kể cả Xếp hạng.** Rương từ Reload, Sáng tạo và các chế độ khác không còn được tính, và những trận đó rời khỏi danh sách. Các trận chỉ còn trong kho lưu trữ cũng được tính lại bằng phân tích hiện tại.
+
 ## 1.1.6
 
 - **Rương của đội trên bản đồ.** Đồng đội cũng dùng ứng dụng hiện trên Bản đồ cùng mọi rương họ đã lục, mỗi người một màu. Bấm vào một rương để xem lúc nào và là rương thứ mấy. Để làm vậy, Trực tuyến giờ gửi thêm thời điểm, loại và vị trí của từng rương của bạn, kể cả các trận trước. Tắt trong Cài đặt > Trực tuyến.

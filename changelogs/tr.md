@@ -3,6 +3,10 @@
 Her sürüm için kısa notlar. Uygulama yenilerini bir güncellemeden sonra bir kez gösterir;
 Ayarlar > Hakkında > Yenilikler onları yeniden gösterir.
 
+## 1.1.7
+
+- **Yalnızca Battle Royale ve Sıfır İnşa sayılır, dereceli dahil.** Reload, Yaratıcı ve diğer modlardaki sandıklar artık sayılmaz ve bu maçlar listeden çıkar. Yalnızca arşivde kalan maçlar da güncel analizle yeniden sayılır.
+
 ## 1.1.6
 
 - **Takımının sandıkları haritada.** Uygulamayı kullanan takım arkadaşları, yağmaladıkları her sandıkla birlikte Harita'da görünür, her biri kendi renginde. Ne zaman olduğunu ve kaçıncı sandık olduğunu görmek için birine tıkla. Bunun için Çevrimiçi artık her sandığının ne zaman, ne türde ve nerede olduğunu da gönderiyor, önceki maçların dahil. Ayarlar > Çevrimiçi'nden kapatılır.

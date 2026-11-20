@@ -33,21 +33,11 @@ pub struct Played {
 }
 
 impl Played {
-    /// Battle Royale playlists that record replays when Fortnite's replay setting is on.
-    /// Other modes (Creative, LEGO, ranked, events) are left out rather than risk a false
-    /// warning.
+    /// Battle Royale and Zero Build, ranked or not: they record replays when Fortnite's
+    /// replay setting is on, and they are the only modes whose chests count. Other modes
+    /// (Reload, Creative, LEGO, events) are left out rather than risk a false warning.
     pub fn records_replays(&self) -> bool {
-        let Some(p) = self.playlist.as_deref() else { return false };
-        let p = p.to_ascii_lowercase();
-        [
-            "playlist_defaultsolo",
-            "playlist_defaultduo",
-            "playlist_defaulttrio",
-            "playlist_defaultsquad",
-            "playlist_nobuildbr_",
-        ]
-        .iter()
-        .any(|prefix| p.starts_with(prefix))
+        self.playlist.as_deref().is_some_and(chests::is_counted_playlist)
     }
 
     pub fn long_enough(&self) -> bool {

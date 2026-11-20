@@ -3,6 +3,10 @@
 Kurze Notizen zu jeder Version. Die App zeigt die neuen einmal nach einem Update, und
 Einstellungen > Info > Neuigkeiten zeigt sie erneut.
 
+## 1.1.7
+
+- **Nur Battle Royale und Null Bauen zählen, Ranked eingeschlossen.** Truhen aus Reload, Kreativ und anderen Modi zählen nicht mehr, und diese Matches verschwinden aus der Liste. Matches, die nur noch im Archiv liegen, werden ebenfalls mit der aktuellen Analyse neu gezählt.
+
 ## 1.1.6
 
 - **Die Truhen deines Trupps auf der Karte.** Teamkameraden, die die App auch nutzen, erscheinen auf der Karte mit jeder Truhe, die sie gelootet haben, jeder in seiner eigenen Farbe. Ein Klick zeigt, wann es war und die wievielte Truhe. Dafür sendet Online jetzt auch, wann, welche Art und wo jede deiner Truhen war, auch für frühere Matches. Unter Einstellungen > Online lässt es sich ausschalten.

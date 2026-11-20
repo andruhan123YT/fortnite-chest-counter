@@ -453,6 +453,19 @@ impl ChestApp {
         while let Ok(event) = self.events.try_recv() {
             match event {
                 Event::Progress { file, fraction, queued } => self.activity.progress = Some((file, fraction, queued)),
+                // Only Battle Royale and Zero Build count. A replay from the player's folder
+                // leaves the list and is remembered, so the scan skips it; a teammate's
+                // replay added by hand is just not kept.
+                Event::Analyzed { record, .. } if !record.counted_mode() => {
+                    self.activity.push_log(self.other_mode_note(&record));
+                    self.store.upsert(*record);
+                    self.activity.progress = None;
+                    changed = true;
+                }
+                Event::SquadAnalyzed { record } if !record.counted_mode() => {
+                    self.activity.push_log(self.other_mode_note(&record));
+                    self.activity.progress = None;
+                }
                 Event::Analyzed { record, .. } if self.is_teammates(&record) => {
                     self.activity.push_log(trf(
                         "{0}: recorded by {1}, added to Squad replays",
@@ -722,6 +735,13 @@ impl ChestApp {
 
     /// A replay dropped among the user's own that a teammate recorded of a match the user
     /// already has: it belongs with the squad replays, not the user's matches.
+    fn other_mode_note(&self, record: &crate::record::MatchRecord) -> String {
+        trf(
+            "{0}: {1} is not Battle Royale or Zero Build, not counted",
+            &[&record.file_name, &record.playlist.as_deref().unwrap_or("?")],
+        )
+    }
+
     fn is_teammates(&self, record: &crate::record::MatchRecord) -> bool {
         let (Some(owner), Some(id)) = (record.owner.as_deref(), record.match_id.as_deref()) else { return false };
         if record.recorder_id().is_some_and(|r| self.settings.my_accounts().any(|a| a == r)) {

@@ -56,6 +56,7 @@ pub const TEXT: &[(&str, &str)] = &[
     ("Discord did not take the status: {0}", "Discord가 상태를 받지 않았습니다: {0}"),
     ("Enjoying the app? Star it on GitHub so more players find it.", "앱이 마음에 드나요? 더 많은 플레이어가 찾을 수 있게 GitHub에서 별을 눌러 주세요."),
     ("{0}: recorded by {1}, added to Squad replays", "{0}: {1}님이 녹화, 스쿼드 리플레이에 추가됨"),
+    ("{0}: {1} is not Battle Royale or Zero Build, not counted", "{0}: {1}은(는) 배틀로얄이나 제로 빌드가 아니라 집계하지 않음"),
     ("{0}: teammate replay by {1}", "{0}: 팀원 {1}님의 리플레이"),
     ("{0}: opened {1}, broke {2}, teammates {3}", "{0}: 열림 {1}, 부숨 {2}, 팀원 {3}"),
     ("{0}: only {1}% of packets decoded; a Fortnite update may have changed the replay format", "{0}: 패킷의 {1}%만 읽었습니다. Fortnite 업데이트로 리플레이 형식이 바뀌었을 수 있습니다"),

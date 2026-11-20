@@ -33,8 +33,10 @@ You don't need to enter your Fortnite name: the app reads it from your replays.
   before one starts, and the in-game overlay says TREASURE HOUR while it runs; chests
   looted in it count with their boost in the Pirate Shop Access chance. Settings > General
   turns each of these off.
-- **Matches**: every match with a timeline of each chest: opened, broken with a pickaxe or
-  rammed with a vehicle, and the prizes it gave: which one, when, and whose chest. Prizes
+- **Matches**: every Battle Royale and Zero Build match, ranked included, with a
+  timeline of each chest: opened, broken with a pickaxe or rammed with a vehicle, and the
+  prizes it gave: which one, when, and whose chest. Other modes, such as Reload and
+  Creative, don't count and aren't listed. Prizes
   other players got near you are marked "Not you" and count nowhere.
 - **Stats & odds**: chests by type, chests needed for a 25/50/90% chance, how lucky you've
   been.

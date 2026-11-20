@@ -645,12 +645,53 @@ impl<'s> NetStream<'s> {
             }
             let Some(field) = r.push_limit(num_bits) else { break };
             let wanted = self.groups[cache].exports.get(&handle).map(|&p| cache_spec.props[p].decoder);
-            if wanted == Some(Decoder::FastArray) {
-                self.receive_fast_array(r, meta, actor, group, static_actor_id, visitor);
+            match wanted {
+                Some(Decoder::FastArray) => self.receive_fast_array(r, meta, actor, group, static_actor_id, visitor),
+                Some(Decoder::StructObject) => {
+                    let name = &cache_spec.props[self.groups[cache].exports[&handle]].name;
+                    self.receive_struct_object(r, meta, actor, group, static_actor_id, name, visitor);
+                }
+                _ => {}
             }
             r.pop_limit(field);
         }
         r.pop_limit(window);
+    }
+
+    /// A custom delta struct led by an object reference: the delta struct flag, one more
+    /// bit, then the object's guid.
+    #[allow(clippy::too_many_arguments)]
+    fn receive_struct_object(
+        &mut self,
+        r: &mut BitReader<'_>,
+        meta: &BunchMeta,
+        actor: ActorRef,
+        group: usize,
+        static_actor_id: Option<&str>,
+        name: &str,
+        visitor: &mut impl Visitor,
+    ) {
+        if self.versions.engine_network >= FAST_ARRAY_DELTA_STRUCT_ENGINE {
+            r.read_bit();
+        }
+        r.read_bit();
+        let guid = r.read_int_packed();
+        if r.is_error() || guid == 0 {
+            return;
+        }
+        let g = &self.groups[group];
+        self.stats.updates += 1;
+        visitor.on_update(&PropertyUpdate {
+            time: meta.time,
+            channel: meta.channel,
+            actor_guid: actor.guid,
+            group: g.spec,
+            group_path: &g.path,
+            static_actor_id,
+            archetype_path: actor.archetype.and_then(|a| self.guid_paths.get(&a)).map(String::as_str),
+            props: &[(name, Value::UInt(guid))],
+            object_paths: &self.guid_paths,
+        });
     }
 
     /// `FFastArraySerializer` delta: header, deleted ids, then each changed element with

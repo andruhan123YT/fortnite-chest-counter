@@ -56,6 +56,7 @@ pub const TEXT: &[(&str, &str)] = &[
     ("Discord did not take the status: {0}", "Discord 未接受该状态:{0}"),
     ("Enjoying the app? Star it on GitHub so more players find it.", "喜欢这个应用吗?在 GitHub 上点个星,让更多玩家发现它。"),
     ("{0}: recorded by {1}, added to Squad replays", "{0}:由 {1} 录制,已加入小队回放"),
+    ("{0}: {1} is not Battle Royale or Zero Build, not counted", "{0}:{1} 不是大逃杀或零建造,不计入"),
     ("{0}: teammate replay by {1}", "{0}:队友 {1} 的回放"),
     ("{0}: opened {1}, broke {2}, teammates {3}", "{0}:打开 {1},破坏 {2},队友 {3}"),
     ("{0}: only {1}% of packets decoded; a Fortnite update may have changed the replay format", "{0}:只读取了 {1}% 的数据包;可能是 Fortnite 更新改变了回放格式"),

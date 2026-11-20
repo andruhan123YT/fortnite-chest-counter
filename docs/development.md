@@ -140,6 +140,16 @@ when a prize arrived but not which one. Prizes are squad-wide: over 100 replays 
 recorder received 39 against about 14 expected from their own 901 chests. Expected drops
 therefore use squad chests.
 
+**Game mode.** `CurrentPlaylistInfo` on the game state's `_ClassNetCache` is a custom
+delta struct: the delta struct flag, one more bit, then the playlist's NetGUID, which the
+stream exports as e.g. `Playlist_NoBuildBR_Squad`. Battle Royale and Zero Build count,
+ranked too: `Playlist_Default`, `Playlist_NoBuildBR_`, `Playlist_Habanero` (ranked) and
+`Playlist_NoBuildBR_Habanero_` followed by nothing but the team size. Reload and other
+islands name the map in between (`Playlist_TimberStakeNoBuildSquad`,
+`Playlist_Habanero_Sunflower_Squads`) and don't count; other modes leave the match
+list (`matches.json` keeps them under `other_modes` so the scan skips them). A replay
+whose playlist can't be read counts, so a parser gap never drops real matches.
+
 **Teammates' replays.** `Athena_GameState.GameSessionId` is the same in every player's
 replay of a match, unlike the replay's GUID (one per recording) or its timestamp (the
 recorder's clock). For each player, whichever linked replay saw the most of their chests

@@ -44,6 +44,12 @@ pub enum Decoder {
     /// as its own update of the owning class, with the element id under
     /// [`FAST_ARRAY_ELEMENT`] and its properties decoded by the owning class's spec.
     FastArray,
+    /// A custom delta struct of a `_ClassNetCache` group that leads with an object
+    /// reference, such as the game state's `CurrentPlaylistInfo`. Reported as an update of
+    /// the owning class with the object's guid, for [`PropertyUpdate::object_path`].
+    ///
+    /// [`PropertyUpdate::object_path`]: crate::PropertyUpdate::object_path
+    StructObject,
 }
 
 /// Property name that carries a fast array element's id.
@@ -243,7 +249,7 @@ pub(crate) fn decode(decoder: Decoder, r: &mut BitReader<'_>) -> Value {
             let bytes = r.read_bytes(r.bits_left() / 8);
             return embedded_string(&bytes).map_or(Value::None, Value::Str);
         }
-        Decoder::Skip | Decoder::FastArray => Value::None,
+        Decoder::Skip | Decoder::FastArray | Decoder::StructObject => Value::None,
     };
     if r.is_error() {
         Value::None

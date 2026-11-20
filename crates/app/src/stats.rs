@@ -323,6 +323,7 @@ mod tests {
             packet_health: 1.0,
             match_id: None,
             bus_launch: None,
+            playlist: None,
             fuller: Vec::new(),
             linked_from: Vec::new(),
             online: Vec::new(),

@@ -69,6 +69,7 @@ pub const TEXT: &[(&str, &str)] = &[
     ("Discord did not take the status: {0}", "Discord tidak menerima status: {0}"),
     ("Enjoying the app? Star it on GitHub so more players find it.", "Suka aplikasinya? Beri bintang di GitHub supaya lebih banyak pemain menemukannya."),
     ("{0}: recorded by {1}, added to Squad replays", "{0}: direkam oleh {1}, ditambahkan ke Replay skuad"),
+    ("{0}: {1} is not Battle Royale or Zero Build, not counted", "{0}: {1} bukan Battle Royale atau Zero Build, tidak dihitung"),
     ("{0}: teammate replay by {1}", "{0}: replay rekan tim {1}"),
     ("{0}: opened {1}, broke {2}, teammates {3}", "{0}: dibuka {1}, dihancurkan {2}, rekan tim {3}"),
     ("{0}: only {1}% of packets decoded; a Fortnite update may have changed the replay format", "{0}: hanya {1}% paket yang terbaca; mungkin update Fortnite mengubah format replay"),

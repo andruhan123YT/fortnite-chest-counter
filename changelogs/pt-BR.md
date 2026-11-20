@@ -3,6 +3,10 @@
 Notas curtas de cada versão. O app mostra as novas uma vez depois de atualizar, e
 Configurações > Sobre > Novidades mostra de novo.
 
+## 1.1.7
+
+- **Só contam Battle Royale e Zero Construção, Ranqueadas incluídas.** Baús de Reload, Modo Criativo e outros modos não contam mais, e essas partidas saem da lista. Partidas que ficaram só no arquivo também são contadas de novo com a análise atual.
+
 ## 1.1.6
 
 - **Os baús do seu esquadrão no mapa.** Companheiros que também usam o app aparecem no Mapa com cada baú que saquearam, cada um com sua cor. Clique em um para ver quando foi e qual baú era. Para isso, o Online agora também envia quando, de que tipo e onde foi cada um dos seus baús, inclusive de partidas anteriores. Desligue em Configurações > Online.

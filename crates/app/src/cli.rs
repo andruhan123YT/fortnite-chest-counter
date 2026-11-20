@@ -114,9 +114,11 @@ fn analyze(args: &[String]) -> Result<(), String> {
         );
         let _ = writeln!(
             out,
-            "    recorded by {}, match id {}, times {}",
+            "    recorded by {}, match id {}, playlist {}{}, times {}",
             record.owner.as_deref().unwrap_or("?"),
             record.match_id.as_deref().unwrap_or("-"),
+            record.playlist.as_deref().unwrap_or("?"),
+            if record.counted_mode() { "" } else { " (not counted)" },
             record.clock_origin()
         );
         if let Some(me) = record.me(&nick) {

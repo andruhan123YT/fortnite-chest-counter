@@ -115,6 +115,29 @@ pub struct MatchAnalysis {
     /// Prizes players outside the squad got in view. Not the recorder's.
     #[serde(default)]
     pub nearby_prizes: Vec<NearbyPrize>,
+    /// The playlist, such as `Playlist_DefaultSquad`, when the replay named it.
+    #[serde(default)]
+    pub playlist: Option<String>,
+}
+
+/// Battle Royale and Zero Build, unranked and ranked (`Habanero`): the playlist name is
+/// one of these followed by nothing but the team size. Reload and other islands put a
+/// map name in between (`Playlist_Habanero_Sunflower_Squads`,
+/// `Playlist_TimberStakeNoBuildSquad`) and do not count, nor do Creative and
+/// limited-time modes.
+const COUNTED_PREFIXES: &[&str] =
+    &["Playlist_Default", "Playlist_NoBuildBR_", "Playlist_Habanero", "Playlist_NoBuildBR_Habanero_"];
+const TEAM_SIZES: &[&str] = &["Solo", "Duo", "Duos", "Trio", "Trios", "Squad", "Squads"];
+
+/// A Battle Royale or Zero Build playlist, ranked or not: the only modes whose chests
+/// are counted.
+pub fn is_counted_playlist(playlist: &str) -> bool {
+    let playlist = playlist.trim().to_ascii_lowercase();
+    COUNTED_PREFIXES.iter().any(|prefix| {
+        playlist
+            .strip_prefix(&prefix.to_ascii_lowercase())
+            .is_some_and(|size| TEAM_SIZES.iter().any(|s| s.eq_ignore_ascii_case(size)))
+    })
 }
 
 /// Fortnite display names are unique regardless of case.
@@ -219,7 +242,15 @@ pub fn analyze(c: &Collected, cfg: &BreakConfig) -> MatchAnalysis {
         Some(state) => treasures(c, state, owner.as_deref(), &players),
         None => (Vec::new(), Vec::new()),
     };
-    MatchAnalysis { players, owner, treasures, match_id: c.session_id.clone(), bus_launch: c.bus_launch, nearby_prizes }
+    MatchAnalysis {
+        players,
+        owner,
+        treasures,
+        match_id: c.session_id.clone(),
+        bus_launch: c.bus_launch,
+        nearby_prizes,
+        playlist: c.playlist.clone(),
+    }
 }
 
 fn treasures(
@@ -325,6 +356,24 @@ mod tests {
     }
 
     #[test]
+    fn only_battle_royale_and_zero_build_count() {
+        // Names seen in real replays.
+        assert!(is_counted_playlist("Playlist_DefaultSquad"));
+        assert!(is_counted_playlist("Playlist_NoBuildBR_Squad"));
+        assert!(is_counted_playlist("playlist_nobuildbr_duo"));
+        assert!(is_counted_playlist("Playlist_HabaneroSolo"));
+        assert!(is_counted_playlist("Playlist_NoBuildBR_Habanero_Solo"));
+        assert!(!is_counted_playlist("Playlist_TimberStakeNoBuildSquad"));
+        // Ranked Reload and other islands name the map.
+        assert!(!is_counted_playlist("Playlist_Habanero_Sunflower_Squads"));
+        assert!(!is_counted_playlist("Playlist_Habanero_NoBuild_TimberStake_Solo"));
+        assert!(!is_counted_playlist("Playlist_NoBuildBR_Squad_Reload"));
+        assert!(!is_counted_playlist("Playlist_PlaygroundV2"));
+        assert!(!is_counted_playlist("Playlist_Default"));
+        assert!(!is_counted_playlist(""));
+    }
+
+    #[test]
     fn squad_includes_teammates_only() {
         let m = MatchAnalysis {
             players: vec![
@@ -338,6 +387,7 @@ mod tests {
             match_id: None,
             bus_launch: None,
             nearby_prizes: Vec::new(),
+            playlist: None,
         };
         let names: Vec<_> = m.squad("me").iter().map(|p| p.name.as_str()).collect();
         assert_eq!(names, ["Me", "Mate"]);

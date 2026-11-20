@@ -3,6 +3,10 @@
 Catatan singkat untuk tiap versi. Aplikasi menampilkan yang baru sekali setelah pembaruan,
 dan Pengaturan > Tentang > Yang baru menampilkannya lagi.
 
+## 1.1.7
+
+- **Hanya Battle Royale dan Zero Build yang dihitung, termasuk Ranked.** Peti dari Reload, Creative, dan mode lain tidak lagi dihitung, dan pertandingan itu keluar dari daftar. Pertandingan yang hanya tersisa di arsip juga dihitung ulang dengan analisis saat ini.
+
 ## 1.1.6
 
 - **Peti skuadmu di peta.** Rekan tim yang juga memakai aplikasi ini muncul di Peta dengan semua peti yang mereka jarah, masing-masing dengan warnanya sendiri. Klik salah satunya untuk melihat kapan dan peti ke berapa. Untuk ini, Online kini juga mengirim kapan, jenis, dan lokasi tiap petimu, termasuk dari pertandingan sebelumnya. Matikan di Pengaturan > Online.

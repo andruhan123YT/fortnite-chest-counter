@@ -69,6 +69,7 @@ pub const TEXT: &[(&str, &str)] = &[
     ("Discord did not take the status: {0}", "Discord ไม่รับสถานะ: {0}"),
     ("Enjoying the app? Star it on GitHub so more players find it.", "ชอบแอปนี้ไหม? ให้ดาวบน GitHub เพื่อให้ผู้เล่นคนอื่นเจอมากขึ้น"),
     ("{0}: recorded by {1}, added to Squad replays", "{0}: บันทึกโดย {1} เพิ่มไปที่รีเพลย์ของสควอดแล้ว"),
+    ("{0}: {1} is not Battle Royale or Zero Build, not counted", "{0}: {1} ไม่ใช่ Battle Royale หรือ Zero Build จึงไม่นับ"),
     ("{0}: teammate replay by {1}", "{0}: รีเพลย์ของเพื่อนร่วมทีม {1}"),
     ("{0}: opened {1}, broke {2}, teammates {3}", "{0}: เปิด {1} ทำลาย {2} เพื่อนร่วมทีม {3}"),
     ("{0}: only {1}% of packets decoded; a Fortnite update may have changed the replay format", "{0}: อ่านแพ็กเก็ตได้แค่ {1}% อาจเป็นเพราะอัปเดตของ Fortnite เปลี่ยนรูปแบบรีเพลย์"),

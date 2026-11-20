@@ -3,6 +3,10 @@
 Notes courtes pour chaque version. L'appli affiche les nouvelles une fois après une mise à
 jour, et Paramètres > À propos > Nouveautés les réaffiche.
 
+## 1.1.7
+
+- **Seuls Battle Royale et Zéro construction comptent, mode classé compris.** Les coffres de Reload, du mode Créatif et des autres modes ne comptent plus, et ces parties quittent la liste. Les parties qui ne restent que dans l'archive sont aussi recomptées avec l'analyse actuelle.
+
 ## 1.1.6
 
 - **Les coffres de ton escouade sur la carte.** Les coéquipiers qui utilisent aussi l'appli apparaissent sur la Carte avec chaque coffre qu'ils ont pillé, chacun dans sa couleur. Clique sur un coffre pour voir quand c'était et lequel c'était. Pour cela, En ligne envoie aussi maintenant quand, de quel type et où était chacun de tes coffres, y compris pour tes parties précédentes. Paramètres > En ligne le désactive.

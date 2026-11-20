@@ -3,6 +3,10 @@
 Krótkie notatki do każdej wersji. Aplikacja pokazuje nowe raz po aktualizacji, a
 Ustawienia > O aplikacji > Co nowego pokazuje je ponownie.
 
+## 1.1.7
+
+- **Liczą się tylko Battle Royale i Zero budowania, także rankingowe.** Skrzynie z Reload, trybu kreatywnego i innych trybów już się nie liczą, a te mecze znikają z listy. Mecze, które zostały tylko w archiwum, też są liczone od nowa obecną analizą.
+
 ## 1.1.6
 
 - **Skrzynie drużyny na mapie.** Członkowie drużyny, którzy też używają aplikacji, pojawiają się na Mapie z każdą skrzynią, którą zlootowali, każdy w swoim kolorze. Kliknij skrzynię, by zobaczyć, kiedy to było i która to była. W tym celu tryb Online wysyła teraz także, kiedy, jaka i gdzie była każda twoja skrzynia, również z wcześniejszych meczów. Wyłączysz to w Ustawienia > Online.

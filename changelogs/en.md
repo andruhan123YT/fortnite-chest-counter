@@ -4,6 +4,10 @@ Short notes per version. The app shows the new ones once after an update, and
 Settings > About > What's new shows them again. The other files in this folder hold the
 same notes in the other interface languages.
 
+## 1.1.7
+
+- **Only Battle Royale and Zero Build count, ranked included.** Chests from Reload, Creative and other modes no longer count, and those matches leave the list. Matches kept only in the archive are counted again with the current analysis too.
+
 ## 1.1.6
 
 - **Your squad's chests on the map.** Squadmates who run the app too show up on the Map with every chest they looted, each in their own color. Click one to see when they got it and which of theirs it was. For this, Online now also sends when, what kind and where each of your chests was, for your earlier matches too. Settings > Online turns it off.

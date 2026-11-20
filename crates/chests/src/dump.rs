@@ -109,6 +109,10 @@ impl<W: Write> Visitor for EventDump<W> {
                 if let Some(state) = u.get("RecorderPlayerState").and_then(|v| v.as_u32()).filter(|&s| s != 0) {
                     self.emit(json!({"k": "recorder", "t": t, "state": state}));
                 }
+                if let Some(path) = u.get("CurrentPlaylistInfo").and_then(|v| v.as_u32()).and_then(|p| u.object_path(p))
+                {
+                    self.emit(json!({"k": "playlist", "t": t, "playlist": path}));
+                }
             }
             Some(Group::Abilities) => {
                 if let Some(path) = u.get("ability").and_then(|v| v.as_u32()).and_then(|a| u.object_path(a)) {
@@ -120,7 +124,7 @@ impl<W: Write> Visitor for EventDump<W> {
                     self.emit(json!({"k": "phase", "t": t, "phase": phase}));
                 }
             }
-            Some(Group::AbilitiesCache) => {}
+            Some(Group::AbilitiesCache | Group::GameStateCache) => {}
             Some(Group::PrizeChest) => {
                 let prize = u.get("PrizeTemplateId").and_then(|v| v.as_str());
                 let pawn = u.get("OpeningPawn").and_then(|v| v.as_u32());

@@ -8,7 +8,7 @@ use crate::cli::mmss;
 use crate::i18n::{plural, trf};
 
 /// Bump when the analysis changes in a way that makes stored results stale.
-pub const ANALYZER_VERSION: u32 = 13;
+pub const ANALYZER_VERSION: u32 = 14;
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct MatchRecord {
@@ -50,6 +50,10 @@ pub struct MatchRecord {
     /// Replay time of the battle bus launch. Chest times are shown from it.
     #[serde(default)]
     pub bus_launch: Option<f32>,
+    /// The playlist, such as `Playlist_NoBuildBR_Squad`. Missing in matches analyzed before
+    /// 1.1.7, or when the replay did not name it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub playlist: Option<String>,
     /// Players whose chests a teammate's replay of this match saw more of than this one
     /// did. Filled in by the store; never saved.
     #[serde(skip)]
@@ -137,6 +141,7 @@ impl MatchRecord {
             })
             .collect();
         let started_at = replay.info.timestamp_ms.and_then(DateTime::from_timestamp_millis).map(|dt| dt.naive_utc());
+        let playlist = analysis.playlist.clone();
         let season = match (replay.header.major, replay.header.minor) {
             (Some(major), Some(minor)) => Some(format!("{major}.{minor:02}")),
             _ => None,
@@ -159,10 +164,18 @@ impl MatchRecord {
             packet_health: replay.packet_health() as f32,
             match_id: analysis.match_id,
             bus_launch: analysis.bus_launch,
+            playlist,
             fuller: Vec::new(),
             linked_from: Vec::new(),
             online: Vec::new(),
         }
+    }
+
+    /// Played in Battle Royale or Zero Build, the only modes whose chests count. A match
+    /// whose playlist is unknown counts, so a replay the parser cannot fully read is not
+    /// dropped.
+    pub fn counted_mode(&self) -> bool {
+        self.playlist.as_deref().is_none_or(chests::is_counted_playlist)
     }
 
     /// Every player, each in the fullest view available: this replay's, or a linked
@@ -347,6 +360,7 @@ mod tests {
             packet_health: 1.0,
             match_id: None,
             bus_launch: None,
+            playlist: None,
             fuller: Vec::new(),
             linked_from: Vec::new(),
             online: Vec::new(),
@@ -441,6 +455,7 @@ mod tests {
             packet_health: 1.0,
             match_id: None,
             bus_launch: None,
+            playlist: None,
             fuller: Vec::new(),
             linked_from: Vec::new(),
             online: Vec::new(),

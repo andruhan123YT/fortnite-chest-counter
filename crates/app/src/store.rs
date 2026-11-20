@@ -18,6 +18,8 @@ struct StoreFile {
     squad_replays: Vec<MatchRecord>,
     #[serde(default)]
     removed: Vec<Removed>,
+    #[serde(default)]
+    other_modes: Vec<OtherMode>,
 }
 
 /// A replay the player removed from the list. Fortnite keeps it in the replay folder,
@@ -29,6 +31,17 @@ pub struct Removed {
     pub file_size: u64,
 }
 
+/// A replay of a mode whose chests do not count, such as Reload. Kept out of the list,
+/// and remembered so the scan does not analyze it again until the analyzer changes.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OtherMode {
+    pub id: String,
+    pub file_name: String,
+    pub file_size: u64,
+    pub playlist: String,
+    pub analyzer_version: u32,
+}
+
 /// `StoreFile` by reference, so saving does not copy every match.
 #[derive(Serialize)]
 struct StoreFileRef<'a> {
@@ -36,6 +49,7 @@ struct StoreFileRef<'a> {
     matches: &'a [MatchRecord],
     squad_replays: &'a [MatchRecord],
     removed: &'a [Removed],
+    other_modes: &'a [OtherMode],
 }
 
 #[derive(Debug, Default)]
@@ -47,6 +61,7 @@ pub struct Store {
     /// only fill in players in the user's match with the same match id.
     pub squad_replays: Vec<MatchRecord>,
     removed: Vec<Removed>,
+    other_modes: Vec<OtherMode>,
     /// Squadmates' own counts from the sync server, for every match. Kept by the online
     /// mode in its own file; empty while it is off.
     online: Vec<crate::online::Found>,
@@ -78,6 +93,7 @@ impl Store {
             matches: file.matches,
             squad_replays: file.squad_replays,
             removed: file.removed,
+            other_modes: file.other_modes,
             online: Vec::new(),
         };
         store.sort();
@@ -93,6 +109,7 @@ impl Store {
                 matches: &self.matches,
                 squad_replays: &self.squad_replays,
                 removed: &self.removed,
+                other_modes: &self.other_modes,
             },
         )
     }
@@ -192,10 +209,29 @@ impl Store {
     /// Adds or replaces a match. One the player removed comes back only when analyzed on
     /// purpose, which is the only way it gets here again.
     pub fn upsert(&mut self, record: MatchRecord) {
+        if !record.counted_mode() {
+            self.leave_out_mode(&record);
+            return;
+        }
+        self.other_modes.retain(|r| r.id != record.id);
         self.removed.retain(|r| r.id != record.id);
         self.matches.retain(|m| m.id != record.id);
         self.matches.push(record);
         self.sort();
+        self.link();
+    }
+
+    /// Takes a match of a mode that does not count out of the list, for good.
+    fn leave_out_mode(&mut self, record: &MatchRecord) {
+        self.matches.retain(|m| m.id != record.id);
+        self.other_modes.retain(|r| r.id != record.id);
+        self.other_modes.push(OtherMode {
+            id: record.id.clone(),
+            file_name: record.file_name.clone(),
+            file_size: record.file_size,
+            playlist: record.playlist.clone().unwrap_or_default(),
+            analyzer_version: record.analyzer_version,
+        });
         self.link();
     }
 
@@ -212,6 +248,7 @@ impl Store {
         self.matches
             .iter()
             .map(|m| ((m.file_name.clone(), m.file_size), m.analyzer_version))
+            .chain(self.other_modes.iter().map(|r| ((r.file_name.clone(), r.file_size), r.analyzer_version)))
             .chain(self.removed.iter().map(|r| ((r.file_name.clone(), r.file_size), u32::MAX)))
             .collect()
     }
@@ -258,6 +295,7 @@ mod tests {
             packet_health: 1.0,
             match_id: None,
             bus_launch: None,
+            playlist: None,
             fuller: Vec::new(),
             linked_from: Vec::new(),
             online: Vec::new(),
@@ -440,6 +478,30 @@ mod tests {
         store.add_squad_replay(copy.clone());
         assert_eq!(store.matches[0].summary("").mine(), 2);
         assert_eq!(store.squad_link(&copy), SquadLink::Own);
+    }
+
+    #[test]
+    fn matches_of_other_modes_leave_the_list_and_stay_out() {
+        let path = std::env::temp_dir().join(format!("fcc-store-modes-{}.json", std::process::id()));
+        let mut store = Store { path: path.clone(), ..Default::default() };
+        let mut zero_build = record("zb", "a.replay");
+        zero_build.playlist = Some("Playlist_NoBuildBR_Squad".into());
+        let mut reload = record("reload", "b.replay");
+        store.upsert(zero_build);
+        store.upsert(reload.clone());
+        assert_eq!(store.matches.len(), 2, "a match from before modes were read still counts");
+
+        // Re-analyzed, it turns out to be Reload.
+        reload.playlist = Some("Playlist_Figment_Squad".into());
+        store.upsert(reload);
+        assert_eq!(store.matches.iter().map(|m| m.id.as_str()).collect::<Vec<_>>(), ["zb"]);
+        store.save().unwrap();
+
+        let loaded = Store::load(path.clone());
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(loaded.matches.len(), 1);
+        // The scan skips it until the analyzer changes.
+        assert_eq!(loaded.known_files().get(&("b.replay".to_string(), 10)), Some(&ANALYZER_VERSION));
     }
 
     #[test]

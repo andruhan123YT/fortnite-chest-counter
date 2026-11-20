@@ -165,6 +165,8 @@ pub struct Collected {
     pub recorder_state: Option<u32>,
     /// The server's id for the match, shared by every replay of it.
     pub session_id: Option<String>,
+    /// The playlist's name, such as `Playlist_DefaultSquad`.
+    pub playlist: Option<String>,
     /// Treasure hunt prizes granted: `(time, player state)`.
     pub treasure_grants: Vec<(f32, u32)>,
     /// Golden prize chests, by actor guid.
@@ -311,7 +313,7 @@ impl Visitor for Collected {
                     self.treasure_grants.push((u.time, u.actor_guid));
                 }
             }
-            Some(Group::AbilitiesCache) => {}
+            Some(Group::AbilitiesCache | Group::GameStateCache) => {}
             Some(Group::PrizeChest) => {
                 // Fields can arrive over several updates; the first one dates the chest.
                 let chest = self
@@ -339,6 +341,10 @@ impl Visitor for Collected {
                 if let Some(id) = u.get("GameSessionId").and_then(|v| v.as_str()).filter(|s| !s.is_empty()) {
                     self.session_id = Some(id.to_string());
                 }
+                let playlist = u.get("CurrentPlaylistInfo").and_then(|v| v.as_u32()).and_then(|g| u.object_path(g));
+                if let Some(name) = playlist.map(playlist_name).filter(|n| n.starts_with("Playlist_")) {
+                    self.playlist = Some(name.to_string());
+                }
             }
             None => {}
         }
@@ -362,9 +368,25 @@ impl Visitor for Collected {
     }
 }
 
+/// `Playlist_NoBuildBR_Squad` out of a playlist's object path, with or without its
+/// package.
+fn playlist_name(path: &str) -> &str {
+    let name = path.rsplit(['/', '.']).next().unwrap_or(path);
+    name.strip_suffix("_C").unwrap_or(name)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn playlist_names_drop_the_package() {
+        assert_eq!(playlist_name("Playlist_NoBuildBR_Squad"), "Playlist_NoBuildBR_Squad");
+        assert_eq!(
+            playlist_name("/Game/Athena/Playlists/NoBuildBR/Playlist_NoBuildBR_Squad.Playlist_NoBuildBR_Squad"),
+            "Playlist_NoBuildBR_Squad"
+        );
+    }
 
     #[test]
     fn decodes_obfuscated_names() {

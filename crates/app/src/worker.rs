@@ -222,8 +222,23 @@ impl State {
                 }
             }
         }
+        self.queue_stale_archived();
         self.emit(Event::Waiting { live });
         self.emit(Event::Idle { last_scan: chrono::Local::now().naive_local() });
+    }
+
+    /// Matches whose replay Fortnite has already deleted live on in the archive. They get
+    /// a new analyzer's results too, so a change such as leaving out other modes reaches
+    /// every match.
+    fn queue_stale_archived(&mut self) {
+        for path in list_replays(&self.settings.archive.dir) {
+            let Some(key) = file_key(&path) else { continue };
+            let stale = self.known.get(&key).is_some_and(|&v| v < ANALYZER_VERSION);
+            let queued = self.queue.iter().any(|j| file_key(&j.path).as_ref() == Some(&key));
+            if stale && !queued && !self.failed.contains(&key) {
+                self.queue.push_back(Job { path, from_watch: false, squad: false });
+            }
+        }
     }
 
     fn drain_queue(&mut self) {
@@ -269,7 +284,7 @@ impl State {
                 }
                 self.known.insert((name.clone(), size), ANALYZER_VERSION);
                 self.failed.remove(&(name.clone(), size));
-                let worth_keeping = self.settings.counts(record.started_at);
+                let worth_keeping = self.settings.counts(record.started_at) && record.counted_mode();
                 if self.settings.archive.enabled && worth_keeping && !job.path.starts_with(&self.settings.archive.dir) {
                     if let Err(e) = archive::store_copy(&self.settings.archive.dir, &name, &bytes).and_then(|_| {
                         archive::enforce_cap(&self.settings.archive.dir, self.settings.archive.max_bytes())
